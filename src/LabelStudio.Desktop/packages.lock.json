@@ -1,0 +1,117 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0-windows10.0.17763": {
+      "SkiaSharp": {
+        "type": "Direct",
+        "requested": "[3.119.0, )",
+        "resolved": "3.119.0",
+        "contentHash": "gR9yVoOta2Mc1Rxt15LD65AckfHMfwjIs/3kkD59C9bT2nYYISsE6uz3t4aMPNHA6CgsIL0Ssn+jE5OVilZ1yw==",
+        "dependencies": {
+          "SkiaSharp.NativeAssets.Win32": "3.119.0",
+          "SkiaSharp.NativeAssets.macOS": "3.119.0"
+        }
+      },
+      "SkiaSharp.Views.WPF": {
+        "type": "Direct",
+        "requested": "[3.119.0, )",
+        "resolved": "3.119.0",
+        "contentHash": "1Dmj9RlBW/gvmJwSUER+N9plA/kcWOgiL5g3q2DB+USVQav8rQtfOZIQZ1Wt/AqhwepOacv1M6pZKDWtXmwDAg==",
+        "dependencies": {
+          "OpenTK": "3.3.1",
+          "OpenTK.GLWpfControl": "3.3.0",
+          "SkiaSharp": "3.119.0",
+          "SkiaSharp.Views.Desktop.Common": "3.119.0"
+        }
+      },
+      "OpenTK": {
+        "type": "Transitive",
+        "resolved": "3.3.1",
+        "contentHash": "vJ00JIs0EOEhqU3+1w6ocurNUFaewd7YXV8sixI029AQeQaht0QjDGgXm2Fk/y8A5Wtx6UsmrjJDKi4USoVeSg=="
+      },
+      "OpenTK.GLWpfControl": {
+        "type": "Transitive",
+        "resolved": "3.3.0",
+        "contentHash": "viHlwA0RIYLA1EyoA+gOkfqpA9xMZV6HigVYhaHaEsYb3jk518RdCKEdFggu/P4oYUNYZmmHaUYDC9pwarkXjA==",
+        "dependencies": {
+          "OpenTK": "[3.3.0, 3.4.0)"
+        }
+      },
+      "SkiaSharp.NativeAssets.macOS": {
+        "type": "Transitive",
+        "resolved": "3.119.0",
+        "contentHash": "YE1vNn0Nyw2PWtv7hw1PYkKJO0itFiQp9vSqGppZUKzQJqwp28a2jgdCMPfYtOiR8KCnDgZqQoynqJRRaE2ZVg=="
+      },
+      "SkiaSharp.NativeAssets.Win32": {
+        "type": "Transitive",
+        "resolved": "3.119.0",
+        "contentHash": "IwC9yx36lOdXVT2DjgmWHl1qkVspfj8ctd4+li8CNnvqdfaTolXCOh6TLznURcPAvzatx9K/tLOB7zT6T8EA9w=="
+      },
+      "SkiaSharp.Views.Desktop.Common": {
+        "type": "Transitive",
+        "resolved": "3.119.0",
+        "contentHash": "KST7Q3n+X5BhDj1aKTJXk9tITWWznveka9n+pBjOtE53Omc+wlZR0s4fQStybWCVVaWG9eaeOMaw93J3zEMklA==",
+        "dependencies": {
+          "SkiaSharp": "3.119.0"
+        }
+      },
+      "labelstudio.diagnostics": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Printing": "[1.0.0, )",
+          "LabelStudio.Rendering": "[1.0.0, )"
+        }
+      },
+      "labelstudio.document": {
+        "type": "Project"
+      },
+      "labelstudio.editor": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Document": "[1.0.0, )",
+          "LabelStudio.Layout": "[1.0.0, )"
+        }
+      },
+      "labelstudio.layout": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Document": "[1.0.0, )"
+        }
+      },
+      "labelstudio.printing": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Document": "[1.0.0, )",
+          "LabelStudio.Layout": "[1.0.0, )",
+          "LabelStudio.Rendering": "[1.0.0, )"
+        }
+      },
+      "labelstudio.printing.brotherql": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Printing": "[1.0.0, )",
+          "LabelStudio.Rendering": "[1.0.0, )"
+        }
+      },
+      "labelstudio.printing.windows": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Printing": "[1.0.0, )"
+        }
+      },
+      "labelstudio.rendering": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Document": "[1.0.0, )",
+          "LabelStudio.Layout": "[1.0.0, )"
+        }
+      },
+      "labelstudio.storage": {
+        "type": "Project",
+        "dependencies": {
+          "LabelStudio.Document": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

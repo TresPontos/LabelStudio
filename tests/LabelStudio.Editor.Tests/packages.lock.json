@@ -102,35 +102,14 @@
       "labelstudio.document": {
         "type": "Project"
       },
-      "labelstudio.layout": {
-        "type": "Project",
-        "dependencies": {
-          "LabelStudio.Document": "[1.0.0, )"
-        }
-      },
-      "labelstudio.printing": {
-        "type": "Project",
-        "dependencies": {
-          "LabelStudio.Document": "[1.0.0, )",
-          "LabelStudio.Layout": "[1.0.0, )",
-          "LabelStudio.Rendering": "[1.0.0, )"
-        }
-      },
-      "labelstudio.printing.brotherql": {
-        "type": "Project",
-        "dependencies": {
-          "LabelStudio.Printing": "[1.0.0, )",
-          "LabelStudio.Rendering": "[1.0.0, )"
-        }
-      },
-      "labelstudio.rendering": {
+      "labelstudio.editor": {
         "type": "Project",
         "dependencies": {
           "LabelStudio.Document": "[1.0.0, )",
           "LabelStudio.Layout": "[1.0.0, )"
         }
       },
-      "labelstudio.storage": {
+      "labelstudio.layout": {
         "type": "Project",
         "dependencies": {
           "LabelStudio.Document": "[1.0.0, )"

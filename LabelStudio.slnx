@@ -14,6 +14,8 @@
     <Project Path="src/LabelStudio.Storage/LabelStudio.Storage.csproj" />
     <Project Path="src/LabelStudio.Diagnostics/LabelStudio.Diagnostics.csproj" />
     <Project Path="src/LabelStudio.DevCli/LabelStudio.DevCli.csproj" />
+    <Project Path="src/LabelStudio.Editor/LabelStudio.Editor.csproj" />
+    <Project Path="src/LabelStudio.Desktop/LabelStudio.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/LabelStudio.Document.Tests/LabelStudio.Document.Tests.csproj" />
@@ -24,5 +26,7 @@
     <Project Path="tests/LabelStudio.Printing.Windows.Tests/LabelStudio.Printing.Windows.Tests.csproj" />
     <Project Path="tests/LabelStudio.Storage.Tests/LabelStudio.Storage.Tests.csproj" />
     <Project Path="tests/LabelStudio.Diagnostics.Tests/LabelStudio.Diagnostics.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Editor.Tests/LabelStudio.Editor.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Desktop.Tests/LabelStudio.Desktop.Tests.csproj" />
   </Folder>
 </Solution>

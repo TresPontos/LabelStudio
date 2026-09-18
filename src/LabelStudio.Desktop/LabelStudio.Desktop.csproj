@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.Views.WPF" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LabelStudio.Editor\LabelStudio.Editor.csproj" />
+    <ProjectReference Include="..\LabelStudio.Document\LabelStudio.Document.csproj" />
+    <ProjectReference Include="..\LabelStudio.Layout\LabelStudio.Layout.csproj" />
+    <ProjectReference Include="..\LabelStudio.Rendering\LabelStudio.Rendering.csproj" />
+    <ProjectReference Include="..\LabelStudio.Printing\LabelStudio.Printing.csproj" />
+    <ProjectReference Include="..\LabelStudio.Printing.BrotherQl\LabelStudio.Printing.BrotherQl.csproj" />
+    <ProjectReference Include="..\LabelStudio.Printing.Windows\LabelStudio.Printing.Windows.csproj" />
+    <ProjectReference Include="..\LabelStudio.Storage\LabelStudio.Storage.csproj" />
+    <ProjectReference Include="..\LabelStudio.Diagnostics\LabelStudio.Diagnostics.csproj" />
+  </ItemGroup>
+
+</Project>
