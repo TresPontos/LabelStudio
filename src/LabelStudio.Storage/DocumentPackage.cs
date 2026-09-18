@@ -22,6 +22,12 @@ public sealed class DocumentPackage
 
     public static void Save(LabelDocument document, string path, byte[]? previewPng = null)
     {
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
         string tempPath = path + ".tmp";
         try
         {

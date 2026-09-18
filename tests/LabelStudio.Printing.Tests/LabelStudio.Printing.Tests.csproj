@@ -18,6 +18,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\LabelStudio.Printing\LabelStudio.Printing.csproj" />
+    <ProjectReference Include="..\..\src\LabelStudio.Printing.BrotherQl\LabelStudio.Printing.BrotherQl.csproj" />
+    <ProjectReference Include="..\..\src\LabelStudio.Storage\LabelStudio.Storage.csproj" />
+    <ProjectReference Include="..\..\src\LabelStudio.Layout\LabelStudio.Layout.csproj" />
+    <ProjectReference Include="..\..\src\LabelStudio.Rendering\LabelStudio.Rendering.csproj" />
   </ItemGroup>
 
 </Project>
