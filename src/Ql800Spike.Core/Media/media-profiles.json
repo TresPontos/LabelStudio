@@ -1,0 +1,78 @@
+[
+  {
+    "profileId": "brother.dk-22251",
+    "sku": "DK-22251",
+    "displayName": "62 mm Continuous Black/Red on White",
+    "kind": "continuous",
+    "physicalWidthMicrometres": 62000,
+    "physicalLengthMicrometres": null,
+    "printableArea": {
+      "crossFeedOffsetMicrometres": 1500,
+      "feedOffsetMicrometres": 0,
+      "widthMicrometres": 58900,
+      "lengthMicrometres": null
+    },
+    "supportedInks": ["black", "red"],
+    "compatiblePrinterModels": ["QL-800"],
+    "cutter": {
+      "supportsAutomaticCut": true,
+      "minimumContinuousLengthMicrometres": 12700,
+      "maximumContinuousLengthMicrometres": 1000000
+    },
+    "brotherQl": {
+      "referenceMediaId": 259,
+      "printInformationMediaType": 10,
+      "statusMediaType": 74,
+      "protocolWidthMillimetres": 62,
+      "protocolLengthMillimetres": 0,
+      "physicalWidthDots": 732,
+      "physicalLengthDots": null,
+      "headLeftBlankDots": 12,
+      "printableWidthDots": 696,
+      "headRightBlankDots": 12,
+      "printableLengthDots": null,
+      "feedOffsetDots": 0,
+      "minimumFeedMarginDots": 35,
+      "maximumFeedMarginDots": 1500,
+      "requiresTwoColourRaster": true
+    }
+  },
+  {
+    "profileId": "brother.dk-11204",
+    "sku": "DK-11204",
+    "displayName": "17 x 54 mm Die-Cut Black on White",
+    "kind": "dieCut",
+    "physicalWidthMicrometres": 17000,
+    "physicalLengthMicrometres": 53900,
+    "printableArea": {
+      "crossFeedOffsetMicrometres": 1500,
+      "feedOffsetMicrometres": 3000,
+      "widthMicrometres": 14000,
+      "lengthMicrometres": 47900
+    },
+    "supportedInks": ["black"],
+    "compatiblePrinterModels": ["QL-800"],
+    "cutter": {
+      "supportsAutomaticCut": true,
+      "minimumContinuousLengthMicrometres": null,
+      "maximumContinuousLengthMicrometres": null
+    },
+    "brotherQl": {
+      "referenceMediaId": 269,
+      "printInformationMediaType": 11,
+      "statusMediaType": 75,
+      "protocolWidthMillimetres": 17,
+      "protocolLengthMillimetres": 54,
+      "physicalWidthDots": 201,
+      "physicalLengthDots": 636,
+      "headLeftBlankDots": 555,
+      "printableWidthDots": 165,
+      "headRightBlankDots": 0,
+      "printableLengthDots": 566,
+      "feedOffsetDots": 35,
+      "minimumFeedMarginDots": 0,
+      "maximumFeedMarginDots": 0,
+      "requiresTwoColourRaster": false
+    }
+  }
+]

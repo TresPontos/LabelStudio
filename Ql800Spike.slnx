@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ql800Spike.Cli/Ql800Spike.Cli.csproj" />
+    <Project Path="src/Ql800Spike.Core/Ql800Spike.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ql800Spike.Tests/Ql800Spike.Tests.csproj" />
+  </Folder>
+</Solution>
