@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/spike/">
+    <Project Path="src/Ql800Spike.Cli/Ql800Spike.Cli.csproj" />
+    <Project Path="src/Ql800Spike.Core/Ql800Spike.Core.csproj" />
+    <Project Path="tests/Ql800Spike.Tests/Ql800Spike.Tests.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/LabelStudio.Document/LabelStudio.Document.csproj" />
+    <Project Path="src/LabelStudio.Layout/LabelStudio.Layout.csproj" />
+    <Project Path="src/LabelStudio.Rendering/LabelStudio.Rendering.csproj" />
+    <Project Path="src/LabelStudio.Printing/LabelStudio.Printing.csproj" />
+    <Project Path="src/LabelStudio.Printing.BrotherQl/LabelStudio.Printing.BrotherQl.csproj" />
+    <Project Path="src/LabelStudio.Printing.Windows/LabelStudio.Printing.Windows.csproj" />
+    <Project Path="src/LabelStudio.Storage/LabelStudio.Storage.csproj" />
+    <Project Path="src/LabelStudio.Diagnostics/LabelStudio.Diagnostics.csproj" />
+    <Project Path="src/LabelStudio.DevCli/LabelStudio.DevCli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LabelStudio.Document.Tests/LabelStudio.Document.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Layout.Tests/LabelStudio.Layout.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Rendering.Tests/LabelStudio.Rendering.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Printing.Tests/LabelStudio.Printing.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Printing.BrotherQl.Tests/LabelStudio.Printing.BrotherQl.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Printing.Windows.Tests/LabelStudio.Printing.Windows.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Storage.Tests/LabelStudio.Storage.Tests.csproj" />
+    <Project Path="tests/LabelStudio.Diagnostics.Tests/LabelStudio.Diagnostics.Tests.csproj" />
+  </Folder>
+</Solution>

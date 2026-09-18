@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LabelStudio.Document\LabelStudio.Document.csproj" />
+    <ProjectReference Include="..\LabelStudio.Layout\LabelStudio.Layout.csproj" />
+    <ProjectReference Include="..\LabelStudio.Rendering\LabelStudio.Rendering.csproj" />
+  </ItemGroup>
+
+</Project>
