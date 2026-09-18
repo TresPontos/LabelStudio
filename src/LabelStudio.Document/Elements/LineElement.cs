@@ -16,9 +16,9 @@ public sealed record LineElement(
 {
     public override string ElementType => "line";
 
-    public MicrometrePoint Start { get; } = Start;
-    public MicrometrePoint End { get; } = End;
-    public Micrometre Thickness { get; } = Thickness;
+    public MicrometrePoint Start { get; init; } = Start;
+    public MicrometrePoint End { get; init; } = End;
+    public Micrometre Thickness { get; init; } = Thickness;
 
     private static MicrometreRect ComputeBounds(MicrometrePoint start, MicrometrePoint end, Micrometre thickness)
     {
