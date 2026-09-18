@@ -1,11 +1,123 @@
 <Window x:Class="LabelStudio.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LabelStudio" Height="600" Width="900"
-        WindowStartupLocation="CenterScreen">
-    <Grid>
-        <TextBlock Text="LabelStudio Desktop - Milestone 2 scaffolding"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   FontSize="16" Foreground="#888"/>
-    </Grid>
+        xmlns:skia="clr-namespace:SkiaSharp.Views.WPF;assembly=SkiaSharp.Views.WPF"
+        Title="LabelStudio" Height="700" Width="1100"
+        WindowStartupLocation="CenterScreen"
+        Background="#FF2D2D30"
+        Foreground="#FFF0F0F0"
+        FontFamily="Segoe UI" FontSize="13"
+        Loaded="MainWindow_OnLoaded"
+        Closing="MainWindow_OnClosing"
+        KeyDown="MainWindow_OnKeyDown">
+    <Window.Resources>
+        <Style x:Key="ToolBtn" TargetType="Button">
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FFCCCCCC"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FF3F3F46"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#FF007ACC"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="CmdBtn" TargetType="Button">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="#FF555555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#FFDDDDDD"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FF3F3F46"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.4"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="InspectorLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FF999999"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+        </Style>
+        <Style x:Key="InspectorField" TargetType="TextBox">
+            <Setter Property="Background" Value="#FF3F3F46"/>
+            <Setter Property="Foreground" Value="#FFF0F0F0"/>
+            <Setter Property="BorderBrush" Value="#FF555555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Command Bar -->
+        <Border DockPanel.Dock="Top" Background="#FF252526" Padding="4">
+            <WrapPanel Orientation="Horizontal">
+                <Button Style="{StaticResource CmdBtn}" Content="New" Click="OnNew" ToolTip="New (Ctrl+N)"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Open" Click="OnOpen" ToolTip="Open (Ctrl+O)"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Save" Click="OnSave" ToolTip="Save (Ctrl+S)"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Save As" Click="OnSaveAs" ToolTip="Save As (Ctrl+Shift+S)"/>
+                <Separator Margin="4,0"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Undo" Click="OnUndo" ToolTip="Undo (Ctrl+Z)" x:Name="UndoBtn"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Redo" Click="OnRedo" ToolTip="Redo (Ctrl+Y)" x:Name="RedoBtn"/>
+                <Separator Margin="4,0"/>
+                <Button Style="{StaticResource CmdBtn}" Content="-" Click="OnZoomOut" ToolTip="Zoom Out"/>
+                <TextBlock x:Name="ZoomLabel" Text="100%" VerticalAlignment="Center" Margin="4,0" Foreground="#FFCCCCCC" MinWidth="40" TextAlignment="Center"/>
+                <Button Style="{StaticResource CmdBtn}" Content="+" Click="OnZoomIn" ToolTip="Zoom In"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Fit" Click="OnZoomFit" ToolTip="Zoom to Fit"/>
+                <Separator Margin="4,0"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Thermal" Click="OnThermalPreview" ToolTip="Thermal Preview"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Mock Print" Click="OnMockPrint" ToolTip="Mock Print to File"/>
+                <Button Style="{StaticResource CmdBtn}" Content="Print" Click="OnPrint" ToolTip="Physical Print"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom" Background="#FF007ACC" Padding="8,2">
+            <TextBlock x:Name="StatusLabel" Text="Ready" Foreground="White" FontSize="11"/>
+        </Border>
+
+        <!-- Tool Rail -->
+        <Border DockPanel.Dock="Left" Background="#FF252526" Width="44">
+            <StackPanel VerticalAlignment="Top" Margin="2,4">
+                <Button Style="{StaticResource ToolBtn}" Content="V" Click="OnToolSelect" ToolTip="Select (V)" x:Name="ToolSelect"/>
+                <Button Style="{StaticResource ToolBtn}" Content="T" Click="OnToolText" ToolTip="Text (T)" x:Name="ToolText"/>
+                <Button Style="{StaticResource ToolBtn}" Content="R" Click="OnToolRect" ToolTip="Rectangle (R)" x:Name="ToolRect"/>
+                <Button Style="{StaticResource ToolBtn}" Content="L" Click="OnToolLine" ToolTip="Line (L)" x:Name="ToolLine"/>
+                <Button Style="{StaticResource ToolBtn}" Content="I" Click="OnToolImage" ToolTip="Image (I)" x:Name="ToolImage"/>
+                <Button Style="{StaticResource ToolBtn}" Content="H" Click="OnToolPan" ToolTip="Pan (H / Space)" x:Name="ToolPan"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Inspector -->
+        <Border DockPanel.Dock="Right" Background="#FF252526" Width="220" Padding="8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="InspectorPanel">
+                    <TextBlock Text="No selection" Foreground="#FF777777" FontSize="12" HorizontalAlignment="Center" Margin="0,20,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Canvas -->
+        <Grid Background="#FF2D2D30" x:Name="CanvasHost">
+            <skia:SKElement x:Name="CanvasElement"
+                            PaintSurface="OnCanvasPaint"
+                            MouseDown="OnCanvasMouseDown"
+                            MouseMove="OnCanvasMouseMove"
+                            MouseUp="OnCanvasMouseUp"
+                            MouseWheel="OnCanvasMouseWheel"/>
+        </Grid>
+    </DockPanel>
 </Window>

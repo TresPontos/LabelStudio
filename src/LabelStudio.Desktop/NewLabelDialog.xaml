@@ -1,0 +1,23 @@
+<Window x:Class="LabelStudio.Desktop.NewLabelDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New Label" Height="200" Width="350"
+        WindowStartupLocation="CenterOwner"
+        Background="#FF2D2D30" Foreground="#FFF0F0F0"
+        FontFamily="Segoe UI" FontSize="13"
+        ResizeMode="NoResize">
+    <StackPanel Margin="16">
+        <TextBlock Text="Select media:" Foreground="#FFCCCCCC" Margin="0,0,0,8"/>
+        <ComboBox x:Name="MediaCombo" Height="28" Margin="0,0,0,12"
+                  Background="#FF3F3F46" Foreground="White" BorderBrush="#FF555555">
+            <ComboBoxItem Content="DK-22251 (62mm Continuous)" Tag="brother.dk-22251" IsSelected="True"/>
+            <ComboBoxItem Content="DK-11204 (17x54mm Die-Cut)" Tag="brother.dk-11204"/>
+        </ComboBox>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Cancel" Width="80" Margin="0,0,8,0" Padding="8,4" IsCancel="True"
+                    Background="Transparent" BorderBrush="#FF555555" Foreground="#FFDDDDDD"/>
+            <Button Content="Create" Width="80" Padding="8,4" IsDefault="True" Click="OnCreate"
+                    Background="#FF007ACC" BorderBrush="#FF007ACC" Foreground="White"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

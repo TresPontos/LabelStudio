@@ -1,0 +1,23 @@
+<Window x:Class="LabelStudio.Desktop.ThermalPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Thermal Preview" Height="500" Width="800"
+        WindowStartupLocation="CenterOwner"
+        Background="#FF1E1E1E" Foreground="#FFF0F0F0"
+        FontFamily="Segoe UI" FontSize="13">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <StackPanel Orientation="Horizontal" Margin="8" Grid.Row="0">
+            <RadioButton x:Name="BlackRadio" Content="Black Plane" IsChecked="True"
+                         Foreground="White" Margin="0,0,16,0" Checked="OnPlaneChanged"/>
+            <RadioButton x:Name="RedRadio" Content="Red Plane" Foreground="White"
+                         Checked="OnPlaneChanged" Visibility="Collapsed"/>
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <Image x:Name="PreviewImage" Stretch="None" Margin="16"/>
+        </ScrollViewer>
+    </Grid>
+</Window>
