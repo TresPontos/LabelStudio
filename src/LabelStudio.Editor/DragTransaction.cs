@@ -1,4 +1,5 @@
 using LabelStudio.Document;
+using LabelStudio.Document.Elements;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor.Commands;
 
@@ -8,6 +9,7 @@ public sealed class DragTransaction
 {
     private readonly Dictionary<string, MicrometreRect> _beforeBounds = new();
     private readonly Dictionary<string, MicrometreRect> _currentBounds = new();
+    private readonly Dictionary<string, DocumentElement> _beforeElements = new();
     private bool _active;
 
     public bool IsActive => _active;
@@ -17,6 +19,7 @@ public sealed class DragTransaction
     {
         _beforeBounds.Clear();
         _currentBounds.Clear();
+        _beforeElements.Clear();
 
         foreach (string id in elementIds)
         {
@@ -25,6 +28,7 @@ public sealed class DragTransaction
             {
                 _beforeBounds[id] = element.Bounds;
                 _currentBounds[id] = element.Bounds;
+                _beforeElements[id] = element;
             }
         }
 
@@ -42,19 +46,21 @@ public sealed class DragTransaction
         if (!_active) return null;
         _active = false;
 
-        var changes = new Dictionary<string, (MicrometreRect OldBounds, MicrometreRect NewBounds)>();
+        var replacements = new List<(DocumentElement Before, DocumentElement After)>();
         foreach (KeyValuePair<string, MicrometreRect> entry in _currentBounds)
         {
             if (_beforeBounds.TryGetValue(entry.Key, out MicrometreRect oldBounds) && oldBounds != entry.Value)
             {
-                changes[entry.Key] = (oldBounds, entry.Value);
+                DocumentElement before = _beforeElements[entry.Key];
+                replacements.Add((before, ElementFactory.WithBounds(before, entry.Value)));
             }
         }
 
         _beforeBounds.Clear();
         _currentBounds.Clear();
+        _beforeElements.Clear();
 
-        return changes.Count > 0 ? new MoveElementsCommand(changes) : null;
+        return replacements.Count > 0 ? new ReplaceElementsCommand(replacements) : null;
     }
 
     public void Cancel()
@@ -62,5 +68,6 @@ public sealed class DragTransaction
         _active = false;
         _beforeBounds.Clear();
         _currentBounds.Clear();
+        _beforeElements.Clear();
     }
 }

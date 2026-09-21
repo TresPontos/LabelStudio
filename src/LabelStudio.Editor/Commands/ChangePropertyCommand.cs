@@ -22,11 +22,17 @@ public sealed class ChangePropertyCommand : IEditorCommand
 
     public string Description => $"Change {_propertyName} on '{_elementId}'";
 
-    public LabelDocument Execute(LabelDocument document) =>
-        document.WithElements(document.Elements.Select(e => ApplyValue(e, _newValue)).ToList());
+    public LabelDocument Execute(LabelDocument document)
+    {
+        ReplaceElementsCommand.EnsureUniqueTargets(document, [_elementId]);
+        return document.WithElements(document.Elements.Select(e => ApplyValue(e, _newValue)).ToList());
+    }
 
-    public LabelDocument Undo(LabelDocument document) =>
-        document.WithElements(document.Elements.Select(e => ApplyValue(e, _oldValue)).ToList());
+    public LabelDocument Undo(LabelDocument document)
+    {
+        ReplaceElementsCommand.EnsureUniqueTargets(document, [_elementId]);
+        return document.WithElements(document.Elements.Select(e => ApplyValue(e, _oldValue)).ToList());
+    }
 
     private DocumentElement ApplyValue(DocumentElement element, object value)
     {
@@ -40,7 +46,7 @@ public sealed class ChangePropertyCommand : IEditorCommand
             ("ink", TextElement t) => t with { Ink = (InkChannel)value },
             ("fill", RectangleElement r) => r with { Fill = (bool)value },
             ("strokeWidth", RectangleElement r) => r with { StrokeWidth = (Micrometre)value },
-            ("thickness", LineElement l) => l with { Thickness = (Micrometre)value },
+            ("thickness", LineElement l) => ElementFactory.WithThickness(l, (Micrometre)value),
             ("text", TextElement t) => t with { Text = (string)value },
             ("fontSizePoints", TextElement t) => t with { FontSizePoints = (int)value },
             ("fontFamily", TextElement t) => t with { FontFamily = (string?)value },

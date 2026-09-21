@@ -92,6 +92,23 @@ public class CommandHistoryTests
     }
 
     [Fact]
+    public void EqualDepthBranch_DoesNotCollideWithSavedStateIdentity()
+    {
+        CommandHistory history = new();
+        LabelDocument doc = CreateDoc();
+        doc = history.Push(new AddElementCommand(RectangleElement.Create("r1", MicrometreRect.Zero)), doc);
+        doc = history.Push(new AddElementCommand(RectangleElement.Create("saved", MicrometreRect.Zero)), doc);
+        history.MarkSaved();
+
+        doc = history.Undo(doc);
+        doc = history.Push(new AddElementCommand(RectangleElement.Create("branch", MicrometreRect.Zero)), doc);
+
+        Assert.Equal(2, history.UndoCount);
+        Assert.True(history.IsDirty);
+        Assert.False(history.CanRedo);
+    }
+
+    [Fact]
     public void RepeatedUndoRedo_NoDrift()
     {
         CommandHistory history = new();

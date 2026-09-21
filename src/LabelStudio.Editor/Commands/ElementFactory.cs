@@ -1,5 +1,6 @@
 using LabelStudio.Document;
 using LabelStudio.Document.Elements;
+using LabelStudio.Document.Geometry;
 using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 
@@ -31,26 +32,56 @@ public static class ElementFactory
     public static ImageElement CreateImage(string id, MicrometreRect bounds, string assetId, InkChannel ink = InkChannel.Black) =>
         new(id, bounds, ink, assetId);
 
+    public static LineElement WithThickness(LineElement line, Micrometre thickness) =>
+        CopyLineMetadata(line, new LineElement(line.Id, line.Start, line.End, thickness, line.Ink));
+
     public static string GenerateId() => Guid.NewGuid().ToString("D");
 
     private static LineElement RebuildLine(LineElement line, MicrometreRect bounds)
     {
-        bool horizontal = line.Bounds.Width >= line.Bounds.Height;
-        Micrometre half = new(line.Thickness.Value / 2);
+        MicrometrePoint start = TransformPoint(line.Start, line.Bounds, bounds, line.Thickness);
+        MicrometrePoint end = TransformPoint(line.End, line.Bounds, bounds, line.Thickness);
 
-        if (horizontal)
+        return CopyLineMetadata(line, new LineElement(line.Id, start, end, line.Thickness, line.Ink));
+    }
+
+    private static LineElement CopyLineMetadata(LineElement source, LineElement target) =>
+        target with
         {
-            Micrometre y = new(bounds.Y.Value + half.Value);
-            MicrometrePoint start = new(new(bounds.X.Value + half.Value), y);
-            MicrometrePoint end = new(new(bounds.Right.Value - half.Value), y);
-            return line with { Bounds = bounds };
-        }
-        else
+            Name = source.Name,
+            IsVisible = source.IsVisible,
+            IsLocked = source.IsLocked,
+            RotationMillidegrees = source.RotationMillidegrees,
+        };
+
+    private static MicrometrePoint TransformPoint(
+        MicrometrePoint point,
+        MicrometreRect oldBounds,
+        MicrometreRect newBounds,
+        Micrometre thickness) =>
+        new(
+            TransformCoordinate(point.X, oldBounds.X, oldBounds.Width, newBounds.X, newBounds.Width, thickness),
+            TransformCoordinate(point.Y, oldBounds.Y, oldBounds.Height, newBounds.Y, newBounds.Height, thickness));
+
+    private static Micrometre TransformCoordinate(
+        Micrometre value,
+        Micrometre oldOrigin,
+        Micrometre oldSize,
+        Micrometre newOrigin,
+        Micrometre newSize,
+        Micrometre thickness)
+    {
+        int halfThickness = thickness.Value / 2;
+        int oldSpan = oldSize.Value - thickness.Value;
+        int newSpan = newSize.Value - thickness.Value;
+        if (oldSpan == 0)
         {
-            Micrometre x = new(bounds.X.Value + half.Value);
-            MicrometrePoint start = new(x, new(bounds.Y.Value + half.Value));
-            MicrometrePoint end = new(x, new(bounds.Bottom.Value - half.Value));
-            return line with { Bounds = bounds };
+            return new Micrometre(newOrigin.Value + halfThickness);
         }
+
+        double scale = newSpan / (double)oldSpan;
+        return ElementGeometry.RoundToMicrometre(
+            newOrigin.Value + halfThickness +
+            ((value.Value - oldOrigin.Value - halfThickness) * scale));
     }
 }

@@ -9,6 +9,7 @@ public sealed class ResizeElementCommand : IEditorCommand
     private readonly string _elementId;
     private readonly MicrometreRect _oldBounds;
     private readonly MicrometreRect _newBounds;
+    private ReplaceElementsCommand? _replacement;
 
     public ResizeElementCommand(string elementId, MicrometreRect oldBounds, MicrometreRect newBounds)
     {
@@ -19,15 +20,21 @@ public sealed class ResizeElementCommand : IEditorCommand
 
     public string Description => $"Resize '{_elementId}'";
 
-    public LabelDocument Execute(LabelDocument document) =>
-        document.WithElements(document.Elements.Select(ApplyNew).ToList());
+    public LabelDocument Execute(LabelDocument document)
+    {
+        _replacement ??= BuildReplacement(document);
+        return _replacement.Execute(document);
+    }
 
     public LabelDocument Undo(LabelDocument document) =>
-        document.WithElements(document.Elements.Select(ApplyOld).ToList());
+        (_replacement ?? throw new InvalidOperationException("The command has not been executed.")).Undo(document);
 
-    private DocumentElement ApplyNew(DocumentElement element) =>
-        element.Id == _elementId ? ElementFactory.WithBounds(element, _newBounds) : element;
-
-    private DocumentElement ApplyOld(DocumentElement element) =>
-        element.Id == _elementId ? ElementFactory.WithBounds(element, _oldBounds) : element;
+    private ReplaceElementsCommand BuildReplacement(LabelDocument document)
+    {
+        ReplaceElementsCommand.EnsureUniqueTargets(document, [_elementId]);
+        DocumentElement? before = document.Elements.FirstOrDefault(element => element.Id == _elementId);
+        return before is null
+            ? new ReplaceElementsCommand([])
+            : new ReplaceElementsCommand([(before, ElementFactory.WithBounds(before, _newBounds))]);
+    }
 }

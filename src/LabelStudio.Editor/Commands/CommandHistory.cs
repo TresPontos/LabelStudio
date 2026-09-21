@@ -4,41 +4,26 @@ namespace LabelStudio.Editor.Commands;
 
 public sealed class CommandHistory
 {
-    private readonly Stack<IEditorCommand> _undo = new();
-    private readonly Stack<IEditorCommand> _redo = new();
-    private int _savedUndoDepth = -1;
+    private readonly Stack<HistoryEntry> _undo = new();
+    private readonly Stack<HistoryEntry> _redo = new();
+    private object _currentState = new();
+    private object? _savedState;
 
     public int UndoCount => _undo.Count;
     public int RedoCount => _redo.Count;
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
 
-    private int _epoch;
-    private int _savedEpochNumber;
-
-    public bool IsDirty
-    {
-        get
-        {
-            if (_savedUndoDepth < 0) return true;
-            if (_epoch != _savedEpochNumber) return true;
-            return _undo.Count != _savedUndoDepth;
-        }
-    }
+    public bool IsDirty => !ReferenceEquals(_currentState, _savedState);
 
     public event EventHandler? HistoryChanged;
-
-    public CommandHistory()
-    {
-        _epoch = 0;
-        _savedUndoDepth = -1;
-        _savedEpochNumber = -1;
-    }
 
     public LabelDocument Push(IEditorCommand command, LabelDocument document)
     {
         LabelDocument newDoc = command.Execute(document);
-        _undo.Push(command);
+        object nextState = new();
+        _undo.Push(new HistoryEntry(command, _currentState, nextState));
+        _currentState = nextState;
         _redo.Clear();
         HistoryChanged?.Invoke(this, EventArgs.Empty);
         return newDoc;
@@ -48,9 +33,10 @@ public sealed class CommandHistory
     {
         if (!CanUndo) return document;
 
-        IEditorCommand command = _undo.Pop();
-        LabelDocument newDoc = command.Undo(document);
-        _redo.Push(command);
+        HistoryEntry entry = _undo.Pop();
+        LabelDocument newDoc = entry.Command.Undo(document);
+        _currentState = entry.BeforeState;
+        _redo.Push(entry);
         HistoryChanged?.Invoke(this, EventArgs.Empty);
         return newDoc;
     }
@@ -59,17 +45,17 @@ public sealed class CommandHistory
     {
         if (!CanRedo) return document;
 
-        IEditorCommand command = _redo.Pop();
-        LabelDocument newDoc = command.Execute(document);
-        _undo.Push(command);
+        HistoryEntry entry = _redo.Pop();
+        LabelDocument newDoc = entry.Command.Execute(document);
+        _currentState = entry.AfterState;
+        _undo.Push(entry);
         HistoryChanged?.Invoke(this, EventArgs.Empty);
         return newDoc;
     }
 
     public void MarkSaved()
     {
-        _savedUndoDepth = _undo.Count;
-        _savedEpochNumber = _epoch;
+        _savedState = _currentState;
         HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -77,9 +63,8 @@ public sealed class CommandHistory
     {
         _undo.Clear();
         _redo.Clear();
-        _savedUndoDepth = 0;
-        _epoch = 0;
-        _savedEpochNumber = 0;
+        _currentState = new object();
+        _savedState = _currentState;
         HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -87,8 +72,10 @@ public sealed class CommandHistory
     {
         _undo.Clear();
         _redo.Clear();
-        _epoch++;
-        _savedUndoDepth = -1;
+        _currentState = new object();
+        _savedState = null;
         HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    private sealed record HistoryEntry(IEditorCommand Command, object BeforeState, object AfterState);
 }

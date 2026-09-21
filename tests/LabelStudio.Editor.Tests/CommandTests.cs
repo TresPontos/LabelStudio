@@ -44,6 +44,21 @@ public class CommandTests
     }
 
     [Fact]
+    public void DeleteElements_UndoRestoresExactOriginalOrder()
+    {
+        RectangleElement[] elements = new[] { "a", "b", "c", "d", "e" }
+            .Select(id => RectangleElement.Create(id, MicrometreRect.Zero))
+            .ToArray();
+        LabelDocument doc = CreateDoc(elements);
+
+        DeleteElementsCommand cmd = new(["b", "d"], doc);
+        LabelDocument restored = cmd.Undo(cmd.Execute(doc));
+
+        Assert.Equal(["a", "b", "c", "d", "e"], restored.Elements.Select(element => element.Id));
+        Assert.True(elements.Cast<DocumentElement>().SequenceEqual(restored.Elements));
+    }
+
+    [Fact]
     public void MoveElements_ThenUndo_RestoresExactBounds()
     {
         RectangleElement rect = RectangleElement.Create("r1", new(new(1000), new(2000), new(5000), new(3000)));
@@ -79,5 +94,121 @@ public class CommandTests
 
         LabelDocument redone = cmd.Execute(cmd.Undo(resized));
         Assert.Equal(8000, redone.Elements[0].Bounds.Width.Value);
+    }
+
+    [Fact]
+    public void MoveDiagonalLine_UpdatesEndpointsAndUndoRedoUsesExactRecords()
+    {
+        LineElement line = new(
+            "line",
+            new MicrometrePoint(new(100), new(500)),
+            new MicrometrePoint(new(1100), new(100)),
+            new Micrometre(20),
+            InkChannel.Red)
+        {
+            Name = "diagonal",
+            IsLocked = true,
+            RotationMillidegrees = 12_000,
+        };
+        LabelDocument doc = CreateDoc(line);
+        MicrometreRect movedBounds = line.Bounds.Offset(new Micrometre(300), new Micrometre(-200));
+        MoveElementsCommand command = new(new Dictionary<string, (MicrometreRect, MicrometreRect)>
+        {
+            [line.Id] = (line.Bounds, movedBounds),
+        });
+
+        LabelDocument movedDocument = command.Execute(doc);
+        LineElement moved = Assert.IsType<LineElement>(Assert.Single(movedDocument.Elements));
+        Assert.Equal(line.Start.Offset(new Micrometre(300), new Micrometre(-200)), moved.Start);
+        Assert.Equal(line.End.Offset(new Micrometre(300), new Micrometre(-200)), moved.End);
+        Assert.Equal(movedBounds, moved.Bounds);
+        Assert.Equal(line.Name, moved.Name);
+        Assert.Equal(line.IsLocked, moved.IsLocked);
+        Assert.Equal(line.RotationMillidegrees, moved.RotationMillidegrees);
+
+        Assert.Same(line, Assert.Single(command.Undo(movedDocument).Elements));
+        Assert.Equal(moved, Assert.Single(command.Execute(doc).Elements));
+    }
+
+    [Fact]
+    public void ResizeDiagonalLine_UpdatesEndpointsAndComputedBounds()
+    {
+        LineElement line = new(
+            "line",
+            new MicrometrePoint(new(100), new(500)),
+            new MicrometrePoint(new(1100), new(100)),
+            new Micrometre(20),
+            InkChannel.Black);
+        LabelDocument doc = CreateDoc(line);
+        MicrometreRect resizedBounds = new(new(200), new(300), new(2020), new(820));
+        ResizeElementCommand command = new(line.Id, line.Bounds, resizedBounds);
+
+        LineElement resized = Assert.IsType<LineElement>(Assert.Single(command.Execute(doc).Elements));
+
+        Assert.Equal(new MicrometrePoint(new(210), new(1110)), resized.Start);
+        Assert.Equal(new MicrometrePoint(new(2210), new(310)), resized.End);
+        Assert.Equal(resizedBounds, resized.Bounds);
+        Assert.Same(line, Assert.Single(command.Undo(CreateDoc(resized)).Elements));
+    }
+
+    [Fact]
+    public void Commands_DefensivelyCopyMutablePayloads()
+    {
+        RectangleElement before = RectangleElement.Create("r1", new(new(0), new(0), new(100), new(100)));
+        RectangleElement after = before with { Bounds = new(new(50), new(50), new(100), new(100)) };
+        var replacements = new List<(DocumentElement Before, DocumentElement After)> { (before, after) };
+        ReplaceElementsCommand replace = new(replacements);
+        replacements.Clear();
+
+        var changes = new Dictionary<string, (MicrometreRect, MicrometreRect)>
+        {
+            ["r1"] = (before.Bounds, after.Bounds),
+        };
+        MoveElementsCommand move = new(changes);
+        changes.Clear();
+
+        List<string> ids = ["r1"];
+        DeleteElementsCommand delete = new(ids, CreateDoc(before));
+        ids.Clear();
+
+        Assert.Equal(after, Assert.Single(replace.Execute(CreateDoc(before)).Elements));
+        Assert.Equal(after.Bounds, Assert.Single(move.Execute(CreateDoc(before)).Elements).Bounds);
+        Assert.Empty(delete.Execute(CreateDoc(before)).Elements);
+    }
+
+    [Fact]
+    public void AddElement_RejectsDuplicateIdAtExecuteTime()
+    {
+        RectangleElement existing = RectangleElement.Create("duplicate", MicrometreRect.Zero);
+        AddElementCommand command = new(RectangleElement.Create("duplicate", MicrometreRect.Zero));
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() => command.Execute(CreateDoc(existing)));
+
+        Assert.Contains("duplicate", error.Message);
+    }
+
+    [Fact]
+    public void ChangeLineThickness_RecomputesBounds()
+    {
+        LineElement line = new(
+            "line",
+            new MicrometrePoint(new(1000), new(2000)),
+            new MicrometrePoint(new(5000), new(2000)),
+            new Micrometre(100),
+            InkChannel.Black);
+        LabelDocument document = CreateDoc(line);
+
+        LabelDocument changed = new ChangePropertyCommand(
+            line.Id,
+            "thickness",
+            line.Thickness,
+            new Micrometre(400)).Execute(document);
+
+        LineElement result = Assert.IsType<LineElement>(changed.Elements[0]);
+        Assert.Equal(400, result.Thickness.Value);
+        Assert.Equal(800, result.Bounds.X.Value);
+        Assert.Equal(1800, result.Bounds.Y.Value);
+        Assert.Equal(4400, result.Bounds.Width.Value);
+        Assert.Equal(400, result.Bounds.Height.Value);
     }
 }

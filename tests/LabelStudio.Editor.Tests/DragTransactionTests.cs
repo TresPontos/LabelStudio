@@ -19,7 +19,7 @@ public class DragTransactionTests
     public void Drag_ProducesOneUndoEntry()
     {
         RectangleElement rect = RectangleElement.Create("r1", new(new(1000), new(1000), new(5000), new(3000)));
-        LabelDocument doc = CreateDoc(rect);
+        LabelDocument doc = CreateDoc();
         CommandHistory history = new();
         doc = history.Push(new AddElementCommand(rect), doc);
         history.MarkSaved();
@@ -71,7 +71,7 @@ public class DragTransactionTests
     public void Redo_RestoresExactGeometry()
     {
         RectangleElement rect = RectangleElement.Create("r1", new(new(1234), new(5678), new(4321), new(8765)));
-        LabelDocument doc = CreateDoc(rect);
+        LabelDocument doc = CreateDoc();
         CommandHistory history = new();
         doc = history.Push(new AddElementCommand(rect), doc);
         history.MarkSaved();
