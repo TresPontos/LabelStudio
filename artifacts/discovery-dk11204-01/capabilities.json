@@ -1,0 +1,106 @@
+[
+  {
+    "queueName": "Brother QL-800",
+    "capabilities": {
+      "queueName": "Brother QL-800",
+      "portName": "USB001",
+      "driverFields": 91407,
+      "minimumExtentRaw": 7864440,
+      "maximumExtentRaw": 655362388,
+      "supportsDuplex": false,
+      "isColorDevice": false,
+      "maximumCopies": 9999,
+      "resolutions": [
+        {
+          "dpiX": 300,
+          "dpiY": 300
+        },
+        {
+          "dpiX": 300,
+          "dpiY": 600
+        }
+      ],
+      "driverReportedReadyMedia": [
+        "1.1\u0022 x 3.5\u0022"
+      ],
+      "paperNames": [
+        "0.66\u0022 x 2.1\u0022",
+        "0.66\u0022 x 3.4\u0022",
+        "0.9\u0022 x 0.9\u0022",
+        "1.1\u0022 x 1.6\u0022",
+        "1.1\u0022 x 3.5\u0022",
+        "1.4\u0022 x 3.5\u0022",
+        "1.5\u0022 x 1.8\u0022",
+        "2\u0022 x 1.1\u0022",
+        "2.1\u0022 x 1.1\u0022",
+        "2.3\u0022 x 3.4\u0022",
+        "2.4\u0022 x 1.1\u0022",
+        "2.4\u0022 x 2.3\u0022",
+        "2.4\u0022 x 2.9\u0022",
+        "2.4\u0022 x 3.9\u0022",
+        "0.47\u0022 Dia",
+        "0.94\u0022 Dia",
+        "2.2\u0022 Dia",
+        "0.47\u0022",
+        "1.1\u0022",
+        "1.4\u0022",
+        "1.9\u0022",
+        "2.1\u0022",
+        "2.4\u0022",
+        "0.47\u0022 x 2",
+        "1.1\u0022 x 2",
+        "1.4\u0022 x 2",
+        "1.9\u0022 x 2",
+        "2.1\u0022 x 2",
+        "2.4\u0022 x 2",
+        "0.47\u0022 x 3",
+        "1.1\u0022 x 3",
+        "1.4\u0022 x 3",
+        "1.9\u0022 x 3",
+        "2.1\u0022 x 3",
+        "2.4\u0022 x 3",
+        "0.47\u0022 x 4",
+        "1.1\u0022 x 4",
+        "1.4\u0022 x 4",
+        "1.9\u0022 x 4",
+        "2.1\u0022 x 4",
+        "2.4\u0022 x 4",
+        "Standard Address Label",
+        "Large Address Label",
+        "Small Address Label",
+        "Return Address Label",
+        "Shipping Label",
+        "Visitor Name Badge Label",
+        "File Folder Label",
+        "Hanging File Folder Label",
+        "Binder 1-1/4\u0022 - Spine",
+        "Binder 2\u0022 - Spine",
+        "CD/DVD Label",
+        "0.47\u0022 Round Label",
+        "0.94\u0022 Round Label",
+        "0.9\u0022 x 0.9\u0022 Square Label",
+        "7\u0022 Postage Label",
+        "8\u0022 Postage Label",
+        "User Defined Size"
+      ],
+      "manufacturer": null,
+      "model": null
+    },
+    "error": null
+  },
+  {
+    "queueName": "EPSON WF-2930 Series (Fax)",
+    "capabilities": null,
+    "error": "Skipped: queue does not look like a Brother printer."
+  },
+  {
+    "queueName": "EPSON08BCDD (WF-2930 Series)",
+    "capabilities": null,
+    "error": "Skipped: queue does not look like a Brother printer."
+  },
+  {
+    "queueName": "Microsoft Print to PDF",
+    "capabilities": null,
+    "error": "Skipped: queue does not look like a Brother printer."
+  }
+]

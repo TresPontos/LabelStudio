@@ -1,0 +1,26 @@
+{
+  "preparedAtUtc": "2026-09-18T16:41:23.667725+00:00",
+  "printerName": "Brother QL-800",
+  "portName": "USB001",
+  "testId": "canary-30",
+  "mediaProfileId": "brother.dk-22251",
+  "mediaSku": "DK-22251",
+  "rasterWidthDots": 720,
+  "rasterHeightDots": 319,
+  "feedMarginDots": 35,
+  "requestedFinishedLengthMicrometres": 30000,
+  "lengthPlanningNote": "Dry-test hypothesis: requested cut length equals raster rows plus the trailing feed margin. Physical tests must verify this.",
+  "payloadBytes": 59777,
+  "payloadSha256": "0722C87554E376FF00EA573EC0A9156E284F6FAA9E18B7D9016ABDFBCE2FD6B6",
+  "validation": {
+    "isValid": true,
+    "errors": [],
+    "rasterLineCount": 319,
+    "printInformationFlags": 134,
+    "expandedMode": 9,
+    "autoCut": true,
+    "cutEvery": 1,
+    "feedMarginDots": 35
+  },
+  "safetyNote": "One monochrome label is expected to feed and cut. No automatic retry is permitted."
+}

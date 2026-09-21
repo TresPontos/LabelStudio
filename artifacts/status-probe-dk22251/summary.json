@@ -1,0 +1,35 @@
+{
+  "completedAtUtc": "2026-09-18T16:16:37.5408043+00:00",
+  "printerName": "Brother QL-800",
+  "workerCompleted": true,
+  "workerExitCode": 0,
+  "timeoutMilliseconds": 10000,
+  "submission": {
+    "submittedAtUtc": "2026-09-18T16:16:36.9013952+00:00",
+    "printerName": "Brother QL-800",
+    "spoolerJobId": 3,
+    "requestedBytes": 3,
+    "writtenBytes": 3,
+    "requestHex": "1B6953"
+  },
+  "readResult": {
+    "submission": {
+      "submittedAtUtc": "2026-09-18T16:16:36.9013952+00:00",
+      "printerName": "Brother QL-800",
+      "spoolerJobId": 3,
+      "requestedBytes": 3,
+      "writtenBytes": 3,
+      "requestHex": "1B6953"
+    },
+    "readCompletedAtUtc": "2026-09-18T16:16:36.9594852+00:00",
+    "readSucceeded": false,
+    "win32Error": 6,
+    "bytesRead": 0,
+    "responseHex": ""
+  },
+  "queueJobsAfterProbe": 1,
+  "queueStatusAfterProbe": "none",
+  "workerStandardOutput": "",
+  "workerStandardError": "",
+  "statusDecoded": false
+}

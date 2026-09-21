@@ -1,0 +1,41 @@
+{
+  "completedAtUtc": "2026-09-18T16:46:44.2141876+00:00",
+  "workerCompleted": true,
+  "workerExitCode": 0,
+  "spoolerJobId": 10,
+  "workerResult": {
+    "submission": {
+      "startedAtUtc": "2026-09-18T16:46:35.7532054+00:00",
+      "completedAtUtc": "2026-09-18T16:46:35.8721617+00:00",
+      "printerName": "Brother QL-800",
+      "documentName": "QL-800 Spike - RAW continuous-100",
+      "spoolerJobId": 10,
+      "requestedBytes": 213599,
+      "writtenBytes": 213599,
+      "writeCalls": 1,
+      "payloadSha256": "A4A9BB8BE94159BE4F8D3E17D9FFE8F85B9086DB6A47ACAF434635A4C2F78339"
+    },
+    "timeline": {
+      "jobId": 10,
+      "snapshots": [
+        {
+          "observedAtUtc": "2026-09-18T16:46:35.8885885+00:00",
+          "jobId": 10,
+          "documentName": "QL-800 Spike - RAW continuous-100",
+          "dataType": "RAW",
+          "statusText": null,
+          "status": "printing, retained",
+          "totalPages": 0,
+          "pagesPrinted": 0
+        }
+      ],
+      "disappearedFromQueue": true,
+      "timedOut": false,
+      "completedAtUtc": "2026-09-18T16:46:43.6431684+00:00"
+    }
+  },
+  "queueJobsAfterWorker": 0,
+  "queueStatusAfterWorker": "none",
+  "workerStandardOutput": "",
+  "workerStandardError": ""
+}

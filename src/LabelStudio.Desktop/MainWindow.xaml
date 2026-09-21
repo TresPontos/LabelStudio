@@ -78,6 +78,10 @@
                 <Button Style="{StaticResource CmdBtn}" Content="+" Click="OnZoomIn" ToolTip="Zoom In"/>
                 <Button Style="{StaticResource CmdBtn}" Content="Fit" Click="OnZoomFit" ToolTip="Zoom to Fit"/>
                 <Separator Margin="4,0"/>
+                <Button Style="{StaticResource CmdBtn}" Content="&#x21BA;" Click="OnRotateViewLeft" ToolTip="Rotate canvas view left (does not change printing)"/>
+                <TextBlock x:Name="ViewRotationLabel" Text="0&deg;" VerticalAlignment="Center" Margin="4,0" Foreground="#FFCCCCCC" MinWidth="30" TextAlignment="Center"/>
+                <Button Style="{StaticResource CmdBtn}" Content="&#x21BB;" Click="OnRotateViewRight" ToolTip="Rotate canvas view right (does not change printing)"/>
+                <Separator Margin="4,0"/>
                 <Button Style="{StaticResource CmdBtn}" Content="Thermal" Click="OnThermalPreview" ToolTip="Thermal Preview"/>
                 <Button Style="{StaticResource CmdBtn}" Content="Mock Print" Click="OnMockPrint" ToolTip="Mock Print to File"/>
                 <Button Style="{StaticResource CmdBtn}" Content="Print" Click="OnPrint" ToolTip="Physical Print"/>
@@ -135,13 +139,23 @@
         </Border>
 
         <!-- Canvas -->
-        <Grid Background="#FF2D2D30" x:Name="CanvasHost">
+        <Grid Background="#FF2D2D30" x:Name="CanvasHost" PreviewMouseLeftButtonDown="OnCanvasPreviewMouseDown">
             <skia:SKElement x:Name="CanvasElement"
                             PaintSurface="OnCanvasPaint"
                             MouseDown="OnCanvasMouseDown"
                             MouseMove="OnCanvasMouseMove"
                             MouseUp="OnCanvasMouseUp"
                             MouseWheel="OnCanvasMouseWheel"/>
+            <TextBox x:Name="TextEditOverlay"
+                     Visibility="Collapsed"
+                     Background="#FFFFFFFF"
+                     Foreground="#FF000000"
+                     BorderBrush="#FF007ACC"
+                     BorderThickness="2"
+                     Padding="2,1"
+                     AcceptsReturn="True"
+                     LostFocus="OnTextEditLostFocus"
+                     KeyDown="OnTextEditKeyDown"/>
         </Grid>
     </DockPanel>
 </Window>

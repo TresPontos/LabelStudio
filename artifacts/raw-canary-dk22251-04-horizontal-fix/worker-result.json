@@ -1,0 +1,31 @@
+{
+  "submission": {
+    "startedAtUtc": "2026-09-18T16:41:23.765055+00:00",
+    "completedAtUtc": "2026-09-18T16:41:23.8817252+00:00",
+    "printerName": "Brother QL-800",
+    "documentName": "QL-800 Spike - RAW Canary 30 mm",
+    "spoolerJobId": 7,
+    "requestedBytes": 59777,
+    "writtenBytes": 59777,
+    "writeCalls": 1,
+    "payloadSha256": "0722C87554E376FF00EA573EC0A9156E284F6FAA9E18B7D9016ABDFBCE2FD6B6"
+  },
+  "timeline": {
+    "jobId": 7,
+    "snapshots": [
+      {
+        "observedAtUtc": "2026-09-18T16:41:23.8968462+00:00",
+        "jobId": 7,
+        "documentName": "QL-800 Spike - RAW Canary 30 mm",
+        "dataType": "RAW",
+        "statusText": null,
+        "status": "printing, retained",
+        "totalPages": 0,
+        "pagesPrinted": 0
+      }
+    ],
+    "disappearedFromQueue": true,
+    "timedOut": false,
+    "completedAtUtc": "2026-09-18T16:41:28.7586423+00:00"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "generatedAtUtc": "2026-09-18T15:44:38.4080044+00:00",
+  "testId": "geometry-60",
+  "mediaProfileId": "brother.dk-22251",
+  "mediaSku": "DK-22251",
+  "rasterWidthDots": 720,
+  "rasterHeightDots": 674,
+  "dpiX": 300,
+  "dpiY": 300,
+  "feedMarginDots": 35,
+  "requestedFinishedLengthMicrometres": 60000,
+  "lengthPlanningNote": "Dry-test hypothesis: requested cut length equals raster rows plus the trailing feed margin. Physical tests must verify this.",
+  "payloadBytes": 63125,
+  "rasterSha256": "3868F377C55886077B9BC850268201E75B303CECFC846614775EB84927441A56",
+  "payloadSha256": "5B59917C833714C33657E7B7D1A167FA35B553857BB0102BA156953B01B42DF5",
+  "validation": {
+    "isValid": true,
+    "errors": [],
+    "rasterLineCount": 674,
+    "printInformationFlags": 134,
+    "expandedMode": 8,
+    "autoCut": true,
+    "cutEvery": 1,
+    "feedMarginDots": 35
+  }
+}

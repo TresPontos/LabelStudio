@@ -45,55 +45,77 @@ public sealed class SkiaCanvasPainter
         int savedState = canvas.Save();
         canvas.Scale(renderScale);
 
-        DrawLabelArea(canvas, doc, view);
-        DrawPrintableArea(canvas, doc, view);
-        DrawElements(canvas, doc, view, selectedElementIds, previewBounds);
-        DrawSelection(canvas, doc, view, editor.Selection, selectedElementIds, previewBounds);
-        DrawHover(canvas, doc, view, hoverElementId);
+        int rotationState = canvas.Save();
+        if (view.ViewRotationDegrees != 0)
+        {
+            (double cos, double sin) = view.RotationMatrix;
+            SKMatrix rotation = new(
+                (float)cos, (float)-sin, (float)view.OffsetX,
+                (float)sin, (float)cos, (float)view.OffsetY,
+                0, 0, 1);
+            canvas.Concat(rotation);
+        }
+        else
+        {
+            canvas.Translate((float)view.OffsetX, (float)view.OffsetY);
+        }
+
+        double dipsPerMm = view.DipsPerMm;
+
+        DrawLabelArea(canvas, doc, dipsPerMm);
+        DrawPrintableArea(canvas, doc, dipsPerMm);
+        DrawElements(canvas, doc, dipsPerMm, selectedElementIds, previewBounds);
+        DrawSelection(canvas, doc, dipsPerMm, editor.Selection, selectedElementIds, previewBounds);
+        DrawHover(canvas, doc, dipsPerMm, hoverElementId);
 
         if (creationPreview is not null)
         {
-            DrawCreationPreview(canvas, view, creationPreview.Value);
+            DrawCreationPreview(canvas, dipsPerMm, creationPreview.Value);
         }
 
+        canvas.RestoreToCount(rotationState);
         canvas.RestoreToCount(savedState);
     }
 
-    private static void DrawLabelArea(SKCanvas canvas, LabelDocument doc, CanvasTransform view)
-    {
-        double x = view.DocumentToCanvasX(Micrometre.Zero);
-        double y = view.DocumentToCanvasY(Micrometre.Zero);
-        double w = view.DocumentToCanvasLength(doc.PageDimensions.Width);
-        double h = view.DocumentToCanvasLength(doc.PageDimensions.Height);
+    private static double DocToCanvas(Micrometre value, double dipsPerMm) =>
+        value.Value / 1000.0 * dipsPerMm;
 
-        if (h < 1) h = view.DocumentToCanvasLength(new Micrometre(200_000));
+    private static void DrawLabelArea(SKCanvas canvas, LabelDocument doc, double dipsPerMm)
+    {
+        float x = 0f;
+        float y = 0f;
+        float w = (float)DocToCanvas(doc.PageDimensions.Width, dipsPerMm);
+        float h = (float)(doc.PageDimensions.Height > Micrometre.Zero
+            ? DocToCanvas(doc.PageDimensions.Height, dipsPerMm)
+            : DocToCanvas(new Micrometre(200_000), dipsPerMm));
 
         using SKPaint paint = new() { Color = LabelColor, IsAntialias = true };
-        canvas.DrawRect((float)x, (float)y, (float)w, (float)h, paint);
+        canvas.DrawRect(x, y, w, h, paint);
 
         using SKPaint border = new() { Color = LabelBorderColor, IsStroke = true, StrokeWidth = 1, IsAntialias = true };
-        canvas.DrawRect((float)x, (float)y, (float)w, (float)h, border);
+        canvas.DrawRect(x, y, w, h, border);
     }
 
-    private static void DrawPrintableArea(SKCanvas canvas, LabelDocument doc, CanvasTransform view)
+    private static void DrawPrintableArea(SKCanvas canvas, LabelDocument doc, double dipsPerMm)
     {
         MicrometreRect printable = doc.MediaGeometry.PrintableArea;
         if (printable.Width <= Micrometre.Zero) return;
 
-        double x = view.DocumentToCanvasX(printable.X);
-        double y = view.DocumentToCanvasY(printable.Y);
-        double w = view.DocumentToCanvasLength(printable.Width);
-        double h = view.DocumentToCanvasLength(printable.Height);
-        if (h < 1) h = view.DocumentToCanvasLength(doc.PageDimensions.Height);
+        float x = (float)DocToCanvas(printable.X, dipsPerMm);
+        float y = (float)DocToCanvas(printable.Y, dipsPerMm);
+        float w = (float)DocToCanvas(printable.Width, dipsPerMm);
+        float h = (float)(printable.Height > Micrometre.Zero
+            ? DocToCanvas(printable.Height, dipsPerMm)
+            : DocToCanvas(doc.PageDimensions.Height > Micrometre.Zero ? doc.PageDimensions.Height : new Micrometre(200_000), dipsPerMm));
 
         using SKPaint fill = new() { Color = PrintableColor, IsAntialias = true };
-        canvas.DrawRect((float)x, (float)y, (float)w, (float)h, fill);
+        canvas.DrawRect(x, y, w, h, fill);
 
         using SKPaint border = new() { Color = PrintableBorderColor, IsStroke = true, StrokeWidth = 0.5f, IsAntialias = true };
-        canvas.DrawRect((float)x, (float)y, (float)w, (float)h, border);
+        canvas.DrawRect(x, y, w, h, border);
     }
 
-    private static void DrawElements(SKCanvas canvas, LabelDocument doc, CanvasTransform view, HashSet<string> selectedElementIds, IReadOnlyDictionary<string, MicrometreRect>? previewBounds)
+    private static void DrawElements(SKCanvas canvas, LabelDocument doc, double dipsPerMm, HashSet<string> selectedElementIds, IReadOnlyDictionary<string, MicrometreRect>? previewBounds)
     {
         foreach (DocumentElement element in doc.Elements)
         {
@@ -102,24 +124,21 @@ public sealed class SkiaCanvasPainter
 
             if (previewBounds is not null && previewBounds.TryGetValue(element.Id, out MicrometreRect preview))
             {
-                DrawElementAt(canvas, element, view, preview, isSelected);
+                DrawElementAt(canvas, element, dipsPerMm, preview, isSelected);
             }
             else
             {
-                DrawElementAt(canvas, element, view, element.Bounds, isSelected);
+                DrawElementAt(canvas, element, dipsPerMm, element.Bounds, isSelected);
             }
         }
     }
 
-    private static void DrawElement(SKCanvas canvas, DocumentElement element, CanvasTransform view, bool isSelected)
-        => DrawElementAt(canvas, element, view, element.Bounds, isSelected);
-
-    private static void DrawElementAt(SKCanvas canvas, DocumentElement element, CanvasTransform view, MicrometreRect bounds, bool isSelected)
+    private static void DrawElementAt(SKCanvas canvas, DocumentElement element, double dipsPerMm, MicrometreRect bounds, bool isSelected)
     {
-        float x = (float)view.DocumentToCanvasX(bounds.X);
-        float y = (float)view.DocumentToCanvasY(bounds.Y);
-        float w = (float)view.DocumentToCanvasLength(bounds.Width);
-        float h = (float)view.DocumentToCanvasLength(bounds.Height);
+        float x = (float)DocToCanvas(bounds.X, dipsPerMm);
+        float y = (float)DocToCanvas(bounds.Y, dipsPerMm);
+        float w = (float)DocToCanvas(bounds.Width, dipsPerMm);
+        float h = (float)DocToCanvas(bounds.Height, dipsPerMm);
 
         SKColor inkColor = element.Ink == InkChannel.Red ? new(0xFFCC0000) : ElementFillColor;
 
@@ -133,22 +152,22 @@ public sealed class SkiaCanvasPainter
                 }
                 else
                 {
-                    int sw = Math.Max(1, (int)view.DocumentToCanvasLength(rect.StrokeWidth));
+                    int sw = Math.Max(1, (int)DocToCanvas(rect.StrokeWidth, dipsPerMm));
                     using SKPaint stroke = new() { Color = inkColor, IsStroke = true, StrokeWidth = sw, IsAntialias = true };
                     canvas.DrawRect(x, y, w, h, stroke);
                 }
                 break;
 
             case LineElement line:
-                int thickness = Math.Max(1, (int)view.DocumentToCanvasLength(line.Thickness));
+                int thickness = Math.Max(1, (int)DocToCanvas(line.Thickness, dipsPerMm));
                 using (SKPaint linePaint = new() { Color = inkColor, StrokeWidth = thickness, IsStroke = true, IsAntialias = true })
                 {
                     int offsetX = bounds.X.Value - line.Bounds.X.Value;
                     int offsetY = bounds.Y.Value - line.Bounds.Y.Value;
-                    float sx = (float)view.DocumentToCanvasX(new Micrometre(line.Start.X.Value + offsetX));
-                    float sy = (float)view.DocumentToCanvasY(new Micrometre(line.Start.Y.Value + offsetY));
-                    float ex = (float)view.DocumentToCanvasX(new Micrometre(line.End.X.Value + offsetX));
-                    float ey = (float)view.DocumentToCanvasY(new Micrometre(line.End.Y.Value + offsetY));
+                    float sx = (float)DocToCanvas(new Micrometre(line.Start.X.Value + offsetX), dipsPerMm);
+                    float sy = (float)DocToCanvas(new Micrometre(line.Start.Y.Value + offsetY), dipsPerMm);
+                    float ex = (float)DocToCanvas(new Micrometre(line.End.X.Value + offsetX), dipsPerMm);
+                    float ey = (float)DocToCanvas(new Micrometre(line.End.Y.Value + offsetY), dipsPerMm);
                     canvas.DrawLine(sx, sy, ex, ey, linePaint);
                 }
                 break;
@@ -165,12 +184,14 @@ public sealed class SkiaCanvasPainter
                 break;
 
             case TextElement text:
-                float fontSize = Math.Max(8, (float)view.DocumentToCanvasLength(new Micrometre(text.Bounds.Height.Value)));
+                float fontSize = Math.Max(8, (float)DocToCanvas(new Micrometre(text.Bounds.Height.Value), dipsPerMm));
                 using (SKPaint textBg = new() { Color = new(0x22444444), IsAntialias = true })
                 {
                     canvas.DrawRect(x, y, w, h, textBg);
                 }
-                using (SKTypeface typeface = SKTypeface.FromFamilyName("Segoe UI"))
+                using (SKTypeface typeface = SKTypeface.FromFamilyName("Segoe UI")
+                    ?? SKTypeface.Default
+                    ?? SKTypeface.FromFamilyName(null))
                 using (SKFont font = new(typeface, fontSize * 0.7f))
                 using (SKPaint textPaint = new() { Color = inkColor, IsAntialias = true })
                 {
@@ -181,7 +202,7 @@ public sealed class SkiaCanvasPainter
         }
     }
 
-    private static void DrawSelection(SKCanvas canvas, LabelDocument doc, CanvasTransform view, SelectionModel selection, HashSet<string> selectedElementIds, IReadOnlyDictionary<string, MicrometreRect>? previewBounds)
+    private static void DrawSelection(SKCanvas canvas, LabelDocument doc, double dipsPerMm, SelectionModel selection, HashSet<string> selectedElementIds, IReadOnlyDictionary<string, MicrometreRect>? previewBounds)
     {
         if (!selection.HasSelection) return;
 
@@ -195,10 +216,10 @@ public sealed class SkiaCanvasPainter
             MicrometreRect bounds = previewBounds is not null && previewBounds.TryGetValue(id, out MicrometreRect preview)
                 ? preview
                 : element.Bounds;
-            float x = (float)view.DocumentToCanvasX(bounds.X);
-            float y = (float)view.DocumentToCanvasY(bounds.Y);
-            float w = (float)view.DocumentToCanvasLength(bounds.Width);
-            float h = (float)view.DocumentToCanvasLength(bounds.Height);
+            float x = (float)DocToCanvas(bounds.X, dipsPerMm);
+            float y = (float)DocToCanvas(bounds.Y, dipsPerMm);
+            float w = (float)DocToCanvas(bounds.Width, dipsPerMm);
+            float h = (float)DocToCanvas(bounds.Height, dipsPerMm);
 
             canvas.DrawRect(x - 2, y - 2, w + 4, h + 4, selPaint);
         }
@@ -223,10 +244,10 @@ public sealed class SkiaCanvasPainter
 
         if (combinedBounds.Width <= Micrometre.Zero && combinedBounds.Height <= Micrometre.Zero) return;
 
-        float cx = (float)view.DocumentToCanvasX(combinedBounds.X);
-        float cy = (float)view.DocumentToCanvasY(combinedBounds.Y);
-        float cw = (float)view.DocumentToCanvasLength(combinedBounds.Width);
-        float ch = (float)view.DocumentToCanvasLength(combinedBounds.Height);
+        float cx = (float)DocToCanvas(combinedBounds.X, dipsPerMm);
+        float cy = (float)DocToCanvas(combinedBounds.Y, dipsPerMm);
+        float cw = (float)DocToCanvas(combinedBounds.Width, dipsPerMm);
+        float ch = (float)DocToCanvas(combinedBounds.Height, dipsPerMm);
 
         using SKPaint combinedPaint = new()
         {
@@ -258,7 +279,7 @@ public sealed class SkiaCanvasPainter
         }
     }
 
-    private static void DrawHover(SKCanvas canvas, LabelDocument doc, CanvasTransform view, string? hoverId)
+    private static void DrawHover(SKCanvas canvas, LabelDocument doc, double dipsPerMm, string? hoverId)
     {
         if (hoverId is null) return;
 
@@ -270,21 +291,21 @@ public sealed class SkiaCanvasPainter
             ? GroupGeometry.GetGroupBounds(doc, groupId)
             : element.Bounds;
 
-        float x = (float)view.DocumentToCanvasX(bounds.X);
-        float y = (float)view.DocumentToCanvasY(bounds.Y);
-        float w = (float)view.DocumentToCanvasLength(bounds.Width);
-        float h = (float)view.DocumentToCanvasLength(bounds.Height);
+        float x = (float)DocToCanvas(bounds.X, dipsPerMm);
+        float y = (float)DocToCanvas(bounds.Y, dipsPerMm);
+        float w = (float)DocToCanvas(bounds.Width, dipsPerMm);
+        float h = (float)DocToCanvas(bounds.Height, dipsPerMm);
 
         using SKPaint paint = new() { Color = HoverColor, IsAntialias = true };
         canvas.DrawRect(x - 2, y - 2, w + 4, h + 4, paint);
     }
 
-    private static void DrawCreationPreview(SKCanvas canvas, CanvasTransform view, MicrometreRect rect)
+    private static void DrawCreationPreview(SKCanvas canvas, double dipsPerMm, MicrometreRect rect)
     {
-        float x = (float)view.DocumentToCanvasX(rect.X);
-        float y = (float)view.DocumentToCanvasY(rect.Y);
-        float w = (float)view.DocumentToCanvasLength(rect.Width);
-        float h = (float)view.DocumentToCanvasLength(rect.Height);
+        float x = (float)DocToCanvas(rect.X, dipsPerMm);
+        float y = (float)DocToCanvas(rect.Y, dipsPerMm);
+        float w = (float)DocToCanvas(rect.Width, dipsPerMm);
+        float h = (float)DocToCanvas(rect.Height, dipsPerMm);
 
         using SKPaint paint = new() { Color = PreviewColor, IsStroke = true, StrokeWidth = 1.5f, IsAntialias = true };
         canvas.DrawRect(x, y, w, h, paint);

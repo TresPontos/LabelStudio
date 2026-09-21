@@ -396,10 +396,8 @@ public sealed class CanvasInputHandler
         if (bounds.Width <= Micrometre.Zero && bounds.Height <= Micrometre.Zero) return ResizeHandle.None;
 
         CanvasTransform view = _editor.ViewTransform;
-        double left = view.DocumentToCanvasX(bounds.X);
-        double top = view.DocumentToCanvasY(bounds.Y);
-        double right = left + view.DocumentToCanvasLength(bounds.Width);
-        double bottom = top + view.DocumentToCanvasLength(bounds.Height);
+        (double left, double top) = view.DocumentToCanvas(bounds.X, bounds.Y);
+        (double right, double bottom) = view.DocumentToCanvas(bounds.Right, bounds.Bottom);
         double midX = (left + right) / 2;
         double midY = (top + bottom) / 2;
 

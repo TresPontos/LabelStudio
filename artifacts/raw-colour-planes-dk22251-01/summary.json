@@ -1,0 +1,41 @@
+{
+  "completedAtUtc": "2026-09-18T16:44:29.5995126+00:00",
+  "workerCompleted": true,
+  "workerExitCode": 0,
+  "spoolerJobId": 8,
+  "workerResult": {
+    "submission": {
+      "startedAtUtc": "2026-09-18T16:44:24.0004288+00:00",
+      "completedAtUtc": "2026-09-18T16:44:24.1113113+00:00",
+      "printerName": "Brother QL-800",
+      "documentName": "QL-800 Spike - RAW Colour Planes",
+      "spoolerJobId": 8,
+      "requestedBytes": 59777,
+      "writtenBytes": 59777,
+      "writeCalls": 1,
+      "payloadSha256": "5DD8FCFC49E4CB9190301313813762F20BEE02964FA0EF864576EC80CE897541"
+    },
+    "timeline": {
+      "jobId": 8,
+      "snapshots": [
+        {
+          "observedAtUtc": "2026-09-18T16:44:24.1261584+00:00",
+          "jobId": 8,
+          "documentName": "QL-800 Spike - RAW Colour Planes",
+          "dataType": "RAW",
+          "statusText": null,
+          "status": "printing, retained",
+          "totalPages": 0,
+          "pagesPrinted": 0
+        }
+      ],
+      "disappearedFromQueue": true,
+      "timedOut": false,
+      "completedAtUtc": "2026-09-18T16:44:29.0225301+00:00"
+    }
+  },
+  "queueJobsAfterWorker": 0,
+  "queueStatusAfterWorker": "none",
+  "workerStandardOutput": "",
+  "workerStandardError": ""
+}

@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private CanvasInputHandler _input = null!;
     private readonly SkiaCanvasPainter _painter = new();
     private bool _updatingLayers;
+    private string? _textEditElementId;
+    private string _textEditOriginalText = string.Empty;
     private readonly SelectionCloneService _cloneService = new();
     private ClipboardPayload? _internalClipboard;
     private Dictionary<string, byte[]>? _documentAssets;
@@ -111,6 +113,17 @@ public partial class MainWindow : Window
     // Window keyboard
     private void MainWindow_OnKeyDown(object sender, KeyEventArgs e)
     {
+        if (IsTextEditActive)
+        {
+            if (e.Key == Key.Escape)
+            {
+                CancelTextEdit();
+                e.Handled = true;
+                return;
+            }
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             if (_editor.ActiveTool != EditorTool.Select)
@@ -302,17 +315,44 @@ public partial class MainWindow : Window
     private void OnZoomFit(object sender, RoutedEventArgs e)
     {
         PhysicalSize dims = _editor.Session.Document.PageDimensions;
-        double labelW = dims.Width.Value / 1000.0 * CanvasTransform.BaseDipsPerMm;
-        double labelH = (dims.Height > Micrometre.Zero ? dims.Height : new Micrometre(200_000)).Value / 1000.0 * CanvasTransform.BaseDipsPerMm;
+        double docW = dims.Width.Value;
+        double docH = (dims.Height > Micrometre.Zero ? dims.Height : new Micrometre(200_000)).Value;
+
+        (double displayW, double displayH) = _editor.ViewTransform.GetRotatedDisplaySize(docW, docH);
+
         double availW = CanvasHost.ActualWidth - 80;
         double availH = CanvasHost.ActualHeight - 80;
-        double zoomX = availW / labelW;
-        double zoomY = availH / labelH;
-        _editor.ViewTransform.Zoom = Math.Min(zoomX, zoomY);
-        _editor.ViewTransform.OffsetX = (CanvasHost.ActualWidth - labelW * _editor.ViewTransform.Zoom) / 2;
-        _editor.ViewTransform.OffsetY = (CanvasHost.ActualHeight - labelH * _editor.ViewTransform.Zoom) / 2;
+        double zoom = Math.Min(availW / displayW, availH / displayH);
+        _editor.ViewTransform.Zoom = zoom;
+
+        double scaledW = displayW * zoom;
+        double scaledH = displayH * zoom;
+        _editor.ViewTransform.OffsetX = (CanvasHost.ActualWidth - scaledW) / 2;
+        _editor.ViewTransform.OffsetY = (CanvasHost.ActualHeight - scaledH) / 2;
+
         UpdateCommandButtons();
         InvalidateCanvas();
+    }
+
+    // View Rotation
+    private void OnRotateViewLeft(object sender, RoutedEventArgs e)
+    {
+        _editor.ViewTransform.ViewRotationDegrees -= 90;
+        UpdateViewRotationLabel();
+        InvalidateCanvas();
+    }
+
+    private void OnRotateViewRight(object sender, RoutedEventArgs e)
+    {
+        _editor.ViewTransform.ViewRotationDegrees += 90;
+        UpdateViewRotationLabel();
+        InvalidateCanvas();
+    }
+
+    private void UpdateViewRotationLabel()
+    {
+        ViewRotationLabel.Text = $"{_editor.ViewTransform.ViewRotationDegrees}\u00B0";
+        UpdateCommandButtons();
     }
 
     // Tools
@@ -500,7 +540,164 @@ public partial class MainWindow : Window
         return result == MessageBoxResult.No;
     }
 
-    // Inspector
+    private DateTime _lastClickTime;
+    private Point _lastClickPosition;
+    private const double DoubleClickDistance = 5.0;
+    private const int DoubleClickMilliseconds = 400;
+
+    private void OnCanvasPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+
+        Point pos = e.GetPosition(CanvasElement);
+        DateTime now = DateTime.UtcNow;
+
+        if (IsTextEditActive)
+        {
+            MicrometrePoint docPoint = _editor.ViewTransform.CanvasToDocument(pos.X, pos.Y);
+            Micrometre tolerance = _editor.ViewTransform.ScreenToleranceToDocument(EditorState.ScreenHitToleranceDip);
+            string? hitId = HitTester.HitTestTopmost(_editor.Session.Document, docPoint, tolerance);
+            TextElement? textElement = hitId is not null
+                ? _editor.Session.Document.Elements.OfType<TextElement>().FirstOrDefault(t => t.Id == hitId)
+                : null;
+
+            if (textElement is not null && textElement.Id == _textEditElementId)
+            {
+                return;
+            }
+
+            CommitTextEdit();
+            return;
+        }
+
+        if ((now - _lastClickTime).TotalMilliseconds < DoubleClickMilliseconds &&
+            Math.Abs(pos.X - _lastClickPosition.X) < DoubleClickDistance &&
+            Math.Abs(pos.Y - _lastClickPosition.Y) < DoubleClickDistance)
+        {
+            HandleDoubleClick(pos);
+            _lastClickTime = DateTime.MinValue;
+            e.Handled = false;
+            return;
+        }
+
+        _lastClickTime = now;
+        _lastClickPosition = pos;
+    }
+
+    private void HandleDoubleClick(Point pos)
+    {
+        if (_editor.ActiveTool != EditorTool.Select) return;
+
+        MicrometrePoint docPoint = _editor.ViewTransform.CanvasToDocument(pos.X, pos.Y);
+        Micrometre tolerance = _editor.ViewTransform.ScreenToleranceToDocument(EditorState.ScreenHitToleranceDip);
+
+        string? hitId = HitTester.HitTestTopmost(_editor.Session.Document, docPoint, tolerance);
+        if (hitId is null) return;
+
+        TextElement? textElement = _editor.Session.Document.Elements
+            .OfType<TextElement>()
+            .FirstOrDefault(t => t.Id == hitId);
+        if (textElement is not null)
+        {
+            BeginTextEdit(textElement);
+        }
+    }
+
+    private bool IsTextEditActive => _textEditElementId is not null;
+
+    private void BeginTextEdit(TextElement text)
+    {
+        _textEditElementId = text.Id;
+        _textEditOriginalText = text.Text;
+
+        MicrometreRect bounds = text.Bounds;
+        CanvasTransform view = _editor.ViewTransform;
+        (double canvasX, double canvasY) = view.DocumentToCanvas(bounds.X, bounds.Y);
+        double canvasW = view.DocumentToCanvasLength(bounds.Width);
+        double canvasH = view.DocumentToCanvasLength(bounds.Height);
+
+        float renderScale = (float)(CanvasElement.ActualWidth > 0
+            ? CanvasElement.ActualWidth / CanvasElement.ActualWidth
+            : 1.0);
+
+        TextEditOverlay.Text = text.Text;
+        TextEditOverlay.Visibility = Visibility.Visible;
+        TextEditOverlay.Width = Math.Max(40, canvasW);
+        TextEditOverlay.MinHeight = Math.Max(20, canvasH);
+        TextEditOverlay.FontSize = Math.Max(8, canvasH * 0.7);
+
+        System.Windows.Controls.Canvas.SetLeft(TextEditOverlay, canvasX);
+        System.Windows.Controls.Canvas.SetTop(TextEditOverlay, canvasY);
+        Panel.SetZIndex(TextEditOverlay, 100);
+
+        TextEditOverlay.Focus();
+        TextEditOverlay.SelectAll();
+        InvalidateCanvas();
+    }
+
+    private void CommitTextEdit()
+    {
+        if (_textEditElementId is null) return;
+
+        string newText = TextEditOverlay.Text;
+        string elementId = _textEditElementId;
+        string originalText = _textEditOriginalText;
+
+        ExitTextEdit();
+
+        if (newText != originalText)
+        {
+            TextElement? element = _editor.Session.Document.Elements
+                .OfType<TextElement>()
+                .FirstOrDefault(t => t.Id == elementId);
+            if (element is not null)
+            {
+                _editor.Session.ExecuteCommand(new ChangePropertyCommand(
+                    elementId, "text", originalText, newText));
+            }
+        }
+    }
+
+    private void CancelTextEdit()
+    {
+        ExitTextEdit();
+        InvalidateCanvas();
+    }
+
+    private void ExitTextEdit()
+    {
+        _textEditElementId = null;
+        _textEditOriginalText = string.Empty;
+        TextEditOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnTextEditLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (IsTextEditActive)
+        {
+            CommitTextEdit();
+        }
+    }
+
+    private void OnTextEditKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!IsTextEditActive) return;
+
+        if (e.Key == Key.Enter && !TextEditOverlay.AcceptsReturn)
+        {
+            CommitTextEdit();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter && Keyboard.IsKeyDown(Key.LeftShift))
+        {
+            e.Handled = false;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            CancelTextEdit();
+            e.Handled = true;
+        }
+    }
     private void UpdateInspector()
     {
         InspectorPanel.Children.Clear();
@@ -615,8 +812,12 @@ public partial class MainWindow : Window
                 break;
             case TextElement text:
                 AddInspectorRow("Ink", text.Ink.ToString(), true);
-                AddInspectorRow("Text", text.Text, false);
-                AddInspectorRow("Font Size", $"{text.FontSizePoints}pt", false);
+                AddInspectorTextField("Text", text.Text, value =>
+                    CommitTextProperty(text.Id, "text", text.Text, value));
+                AddInspectorField("Font Size", text.FontSizePoints, "FontSize", pt =>
+                    CommitTextProperty(text.Id, "fontSizePoints", text.FontSizePoints, (int)Math.Round(pt, MidpointRounding.AwayFromZero)));
+                AddInspectorTextField("Font", text.FontFamily ?? "", value =>
+                    CommitTextProperty(text.Id, "fontFamily", text.FontFamily ?? "", (object)(string.IsNullOrWhiteSpace(value) ? null : value.Trim())!));
                 break;
             case ImageElement img:
                 AddInspectorRow("Ink", img.Ink.ToString(), true);
@@ -756,6 +957,14 @@ public partial class MainWindow : Window
         if (_editor.Session.Document.IsEffectivelyLocked(activeId)) return;
 
         _editor.Session.ExecuteCommand(new ResizeElementCommand(activeId, element.Bounds, newBounds));
+    }
+
+    private void CommitTextProperty(string elementId, string propertyName, object oldValue, object newValue)
+    {
+        if (oldValue is string oldStr && newValue is string newStr && oldStr == newStr) return;
+        if (oldValue is int oldInt && newValue is int newInt && oldInt == newInt) return;
+
+        _editor.Session.ExecuteCommand(new ChangePropertyCommand(elementId, propertyName, oldValue, newValue));
     }
 
     private void CommitSelectionMoveTo(List<string> elementIds, int targetX, int targetY)

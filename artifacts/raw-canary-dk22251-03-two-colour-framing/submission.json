@@ -1,0 +1,11 @@
+{
+  "startedAtUtc": "2026-09-18T16:34:42.6260192+00:00",
+  "completedAtUtc": "2026-09-18T16:34:42.7565382+00:00",
+  "printerName": "Brother QL-800",
+  "documentName": "QL-800 Spike - RAW Canary 30 mm",
+  "spoolerJobId": 6,
+  "requestedBytes": 59777,
+  "writtenBytes": 59777,
+  "writeCalls": 1,
+  "payloadSha256": "7CEBA2CEF3935D9F902F4F22CF039004F4BC6E883244776FCC10050E7D9DA504"
+}

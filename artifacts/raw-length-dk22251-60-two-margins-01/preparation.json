@@ -1,0 +1,26 @@
+{
+  "preparedAtUtc": "2026-09-18T16:51:16.8969122+00:00",
+  "printerName": "Brother QL-800",
+  "portName": "USB001",
+  "testId": "continuous-60",
+  "mediaProfileId": "brother.dk-22251",
+  "mediaSku": "DK-22251",
+  "rasterWidthDots": 720,
+  "rasterHeightDots": 639,
+  "feedMarginDots": 35,
+  "requestedFinishedLengthMicrometres": 60000,
+  "lengthPlanningNote": "Finished continuous length equals raster rows plus equal leading and trailing feed margins.",
+  "payloadBytes": 119297,
+  "payloadSha256": "BBC770738809835297AC4D8F540E428321960527D348D0AA85590F119A309B84",
+  "validation": {
+    "isValid": true,
+    "errors": [],
+    "rasterLineCount": 639,
+    "printInformationFlags": 134,
+    "expandedMode": 9,
+    "autoCut": true,
+    "cutEvery": 1,
+    "feedMarginDots": 35
+  },
+  "safetyNote": "One monochrome label is expected to feed and cut. No automatic retry is permitted."
+}
