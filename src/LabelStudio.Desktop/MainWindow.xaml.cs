@@ -8,6 +8,7 @@ using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Commands;
+using LabelStudio.Editor.Clipboard;
 using LabelStudio.Editor.Selection;
 using LabelStudio.Desktop.Canvas;
 using LabelStudio.Layout;
@@ -28,6 +29,9 @@ public partial class MainWindow : Window
     private CanvasInputHandler _input = null!;
     private readonly SkiaCanvasPainter _painter = new();
     private bool _updatingLayers;
+    private readonly SelectionCloneService _cloneService = new();
+    private ClipboardPayload? _internalClipboard;
+    private Dictionary<string, byte[]>? _documentAssets;
 
     public MainWindow()
     {
@@ -152,6 +156,18 @@ public partial class MainWindow : Window
                         OnUngroup(this, null!);
                     else
                         OnGroup(this, null!);
+                    e.Handled = true;
+                    break;
+                case Key.C:
+                    OnCopy(this, null!);
+                    e.Handled = true;
+                    break;
+                case Key.V:
+                    OnPaste(this, null!);
+                    e.Handled = true;
+                    break;
+                case Key.D:
+                    OnDuplicate(this, null!);
                     e.Handled = true;
                     break;
             }
@@ -1157,4 +1173,111 @@ public partial class MainWindow : Window
         ImageElement => "Image",
         _ => "Element",
     };
+
+    // Clipboard
+    private const string ClipboardDataFormat = "LabelStudioClipboard";
+
+    private void OnCopy(object sender, RoutedEventArgs e)
+    {
+        if (!_editor.Selection.HasSelection) return;
+        LabelDocument doc = _editor.Session.Document;
+
+        Func<string, byte[]?> assetProvider = _documentAssets is not null
+            ? id => _documentAssets.TryGetValue(id, out byte[]? bytes) ? bytes : null
+            : _ => null;
+
+        ClipboardPayload payload = _cloneService.BuildPayload(doc, _editor.Selection.Targets, assetProvider);
+        _internalClipboard = payload;
+        _cloneService.ResetPasteOffset();
+
+        try
+        {
+            string json = ClipboardSerializer.Serialize(payload);
+            System.Windows.Clipboard.SetData(ClipboardDataFormat, json);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"Clipboard copy warning: {ex.Message}";
+        }
+    }
+
+    private void OnPaste(object sender, RoutedEventArgs e)
+    {
+        ClipboardPayload? payload = TryGetClipboardPayload();
+        if (payload is null) return;
+
+        LabelDocument doc = _editor.Session.Document;
+
+        Func<string, byte[]?> destAssetProvider = _documentAssets is not null
+            ? id => _documentAssets.TryGetValue(id, out byte[]? bytes) ? bytes : null
+            : _ => null;
+
+        Func<string, string, byte[], string> assetImporter = (sourceId, hash, bytes) =>
+        {
+            string newId = Guid.NewGuid().ToString("N");
+            _documentAssets ??= new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            _documentAssets[newId] = bytes;
+            return newId;
+        };
+
+        PastePlan plan = _cloneService.PlanPaste(payload, doc, destAssetProvider, assetImporter);
+        _cloneService.IncrementPasteCount();
+
+        PasteElementsCommand cmd = new(plan.NewElements, plan.NewGroups, doc);
+        _editor.Session.ExecuteCommand(cmd);
+        _editor.Selection.SetSelection(plan.NewSelectionTargets);
+    }
+
+    private void OnDuplicate(object sender, RoutedEventArgs e)
+    {
+        if (!_editor.Selection.HasSelection) return;
+        LabelDocument doc = _editor.Session.Document;
+
+        Func<string, byte[]?> assetProvider = _documentAssets is not null
+            ? id => _documentAssets.TryGetValue(id, out byte[]? bytes) ? bytes : null
+            : _ => null;
+
+        ClipboardPayload payload = _cloneService.BuildPayload(doc, _editor.Selection.Targets, assetProvider);
+        _internalClipboard = payload;
+        _cloneService.ResetPasteOffset();
+
+        Func<string, byte[]?> destAssetProvider = assetProvider;
+        Func<string, string, byte[], string> assetImporter = (sourceId, hash, bytes) =>
+        {
+            string newId = Guid.NewGuid().ToString("N");
+            _documentAssets ??= new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            _documentAssets[newId] = bytes;
+            return newId;
+        };
+
+        PastePlan plan = _cloneService.PlanPaste(payload, doc, destAssetProvider, assetImporter);
+        _cloneService.IncrementPasteCount();
+
+        PasteElementsCommand cmd = new(plan.NewElements, plan.NewGroups, doc);
+        _editor.Session.ExecuteCommand(cmd);
+        _editor.Selection.SetSelection(plan.NewSelectionTargets);
+    }
+
+    private ClipboardPayload? TryGetClipboardPayload()
+    {
+        if (_internalClipboard is not null)
+        {
+            return _internalClipboard;
+        }
+
+        try
+        {
+            if (System.Windows.Clipboard.ContainsData(ClipboardDataFormat))
+            {
+                string? json = System.Windows.Clipboard.GetData(ClipboardDataFormat) as string;
+                if (json is not null)
+                {
+                    return ClipboardSerializer.Deserialize(json);
+                }
+            }
+        }
+        catch { }
+
+        return null;
+    }
 }
