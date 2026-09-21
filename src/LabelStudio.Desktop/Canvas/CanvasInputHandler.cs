@@ -6,7 +6,9 @@ using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Commands;
+using LabelStudio.Editor.Selection;
 using SkiaSharp.Views.Desktop;
+using SelectionTarget = LabelStudio.Editor.Selection.SelectionTarget;
 
 namespace LabelStudio.Desktop.Canvas;
 
@@ -107,7 +109,8 @@ public sealed class CanvasInputHandler
             case InteractionMode.Dragging:
                 int dx = docPoint.X.Value - _interactionStart.X.Value;
                 int dy = docPoint.Y.Value - _interactionStart.Y.Value;
-                foreach (string id in _editor.Selection.SelectedIds)
+                IReadOnlyCollection<string> dragIds = _editor.Selection.GetTransformableElementIds(_editor.Session.Document);
+                foreach (string id in dragIds)
                 {
                     Document.Elements.DocumentElement? elem = _editor.Session.Document.Elements.FirstOrDefault(el => el.Id == id);
                     if (elem is null) continue;
@@ -200,8 +203,9 @@ public sealed class CanvasInputHandler
         if (direction is not null && _editor.Selection.HasSelection)
         {
             e.Handled = true;
+            IReadOnlyCollection<string> nudgeIds = _editor.Selection.GetTransformableElementIds(_editor.Session.Document);
             var changes = new Dictionary<string, (MicrometreRect, MicrometreRect)>();
-            foreach (string id in _editor.Selection.SelectedIds)
+            foreach (string id in nudgeIds)
             {
                 Document.Elements.DocumentElement? elem = _editor.Session.Document.Elements.FirstOrDefault(el => el.Id == id);
                 if (elem is null) continue;
@@ -222,7 +226,8 @@ public sealed class CanvasInputHandler
         if (e.Key == Key.Delete && _editor.Selection.HasSelection)
         {
             e.Handled = true;
-            _editor.Session.ExecuteCommand(new DeleteElementsCommand(_editor.Selection.SelectedIds.ToList(), _editor.Session.Document));
+            IReadOnlyCollection<string> deleteIds = _editor.Selection.GetSelectedElementIds(_editor.Session.Document);
+            _editor.Session.ExecuteCommand(new DeleteElementsCommand(deleteIds.ToList(), _editor.Session.Document));
             _editor.Selection.Clear();
             _invalidate();
         }
@@ -241,18 +246,51 @@ public sealed class CanvasInputHandler
         {
             if (e.ChangedButton == MouseButton.Left)
             {
+                string? groupId = _editor.Session.Document.FindGroupIdForMember(hitId);
+
                 if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
                 {
-                    _editor.Selection.ToggleSelect(hitId);
+                    if (groupId is not null)
+                    {
+                        if (_editor.Selection.Contains(groupId))
+                        {
+                            _editor.Selection.ToggleSelectElement(groupId);
+                        }
+                        else
+                        {
+                            _editor.Selection.ToggleSelectElement(groupId);
+                        }
+                    }
+                    else
+                    {
+                        _editor.Selection.ToggleSelectElement(hitId);
+                    }
                 }
-                else if (!_editor.Selection.Contains(hitId))
+                else
                 {
-                    _editor.Selection.Select(hitId);
+                    if (groupId is not null)
+                    {
+                        if (!_editor.Selection.Contains(groupId))
+                        {
+                            _editor.Selection.SelectGroup(groupId);
+                        }
+                    }
+                    else
+                    {
+                        if (!_editor.Selection.Contains(hitId))
+                        {
+                            _editor.Selection.SelectElement(hitId);
+                        }
+                    }
                 }
 
-                _mode = InteractionMode.Dragging;
-                _interactionStart = docPoint;
-                _editor.Drag.Begin(_editor.Selection.SelectedIds.ToList(), _editor.Session.Document);
+                IReadOnlyCollection<string> transformableIds = _editor.Selection.GetTransformableElementIds(_editor.Session.Document);
+                if (transformableIds.Count > 0 && !_editor.Selection.HasLockedMembers(_editor.Session.Document))
+                {
+                    _mode = InteractionMode.Dragging;
+                    _interactionStart = docPoint;
+                    _editor.Drag.Begin(transformableIds.ToList(), _editor.Session.Document);
+                }
             }
         }
         else
@@ -292,7 +330,7 @@ public sealed class CanvasInputHandler
         };
 
         _editor.Session.ExecuteCommand(new AddElementCommand(element));
-        _editor.Selection.Select(id);
+        _editor.Selection.SelectElement(id);
         _editor.ActiveTool = EditorTool.Select;
     }
 

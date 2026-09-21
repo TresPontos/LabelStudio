@@ -278,6 +278,27 @@ public class DocumentPackageTests
         Assert.Throws<InvalidOperationException>(() => DocumentPackage.SaveContent(content, GetTempPath()));
     }
 
+    [Fact]
+    public void SaveLoad_PreservesGroupRecordsAndOrdering()
+    {
+        string path = GetTempPath();
+        LabelDocument doc = CreateSampleDocument();
+        string groupId = Guid.NewGuid().ToString("D");
+        ElementGroup group = new(groupId, "Test Group", ["r1", "t1"], true, false);
+        DocumentDesignMetadata metadata = new([group], [], doc.DesignMetadata.Grid);
+        doc = doc with { DesignMetadata = metadata };
+
+        DocumentPackage.Save(doc, path);
+        LabelDocument loaded = DocumentPackage.Load(path);
+
+        Assert.Single(loaded.DesignMetadata.Groups);
+        Assert.Equal(groupId, loaded.DesignMetadata.Groups[0].Id);
+        Assert.Equal("Test Group", loaded.DesignMetadata.Groups[0].Name);
+        Assert.Equal(["r1", "t1"], loaded.DesignMetadata.Groups[0].MemberIds);
+        Assert.True(loaded.DesignMetadata.Groups[0].IsVisible);
+        Assert.False(loaded.DesignMetadata.Groups[0].IsLocked);
+    }
+
     private static void CreatePackage(string path, string documentJson)
     {
         using FileStream stream = File.Create(path);

@@ -8,6 +8,7 @@ using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Commands;
+using LabelStudio.Editor.Selection;
 using LabelStudio.Desktop.Canvas;
 using LabelStudio.Layout;
 using LabelStudio.Printing;
@@ -144,6 +145,13 @@ public partial class MainWindow : Window
                     break;
                 case Key.O:
                     OnOpen(this, null!);
+                    e.Handled = true;
+                    break;
+                case Key.G:
+                    if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+                        OnUngroup(this, null!);
+                    else
+                        OnGroup(this, null!);
                     e.Handled = true;
                     break;
             }
@@ -479,7 +487,7 @@ public partial class MainWindow : Window
     {
         InspectorPanel.Children.Clear();
 
-        if (!_editor.Selection.HasSelection || _editor.Selection.ActiveId is null)
+        if (!_editor.Selection.HasSelection)
         {
             InspectorPanel.Children.Add(new TextBlock
             {
@@ -492,18 +500,47 @@ public partial class MainWindow : Window
             return;
         }
 
+        LabelDocument doc = _editor.Session.Document;
+        IReadOnlyCollection<string> elementIds = _editor.Selection.GetSelectedElementIds(doc);
+        IReadOnlyList<DocumentElement> selected = doc.Elements
+            .Where(element => elementIds.Contains(element.Id))
+            .ToList();
+
+        if (_editor.Selection.ActiveGroupId is not null)
+        {
+            ElementGroup? group = doc.DesignMetadata.Groups
+                .FirstOrDefault(g => string.Equals(g.Id, _editor.Selection.ActiveGroupId, StringComparison.Ordinal));
+            if (group is not null)
+            {
+                AddInspectorRow("Type", "Group", false);
+                AddInspectorTextField("Name", group.Name ?? string.Empty, value =>
+                    CommitGroupName(group.Id, value));
+                MicrometreRect groupBounds = GroupGeometry.GetGroupBounds(doc, group.Id);
+                AddInspectorRow("X", $"{groupBounds.X.ToMillimetres():F1} mm", false);
+                AddInspectorRow("Y", $"{groupBounds.Y.ToMillimetres():F1} mm", false);
+                AddInspectorRow("Width", $"{groupBounds.Width.ToMillimetres():F1} mm", false);
+                AddInspectorRow("Height", $"{groupBounds.Height.ToMillimetres():F1} mm", false);
+                AddInspectorRow("Members", $"{group.MemberIds.Count}", false);
+
+                bool groupLocked = group.IsLocked || selected.Any(e => e.IsLocked);
+                if (groupLocked)
+                {
+                    AddInspectorSeparator();
+                    AddInspectorRow("Locked", "Yes - transform disabled", false);
+                }
+                return;
+            }
+        }
+
         if (_editor.Selection.IsMultiSelect)
         {
-            IReadOnlyList<DocumentElement> selected = _editor.Session.Document.Elements
-                .Where(element => _editor.Selection.Contains(element.Id))
-                .ToList();
             AddInspectorRow("Selection", $"{selected.Count} elements", false);
             AddInspectorMetadataChecks(selected);
             return;
         }
 
         string? activeId = _editor.Selection.ActiveId;
-        DocumentElement? element = _editor.Session.Document.Elements.FirstOrDefault(e => e.Id == activeId);
+        DocumentElement? element = doc.Elements.FirstOrDefault(e => e.Id == activeId);
         if (element is null) return;
 
         AddInspectorRow("Type", element.ElementType, false);
@@ -677,7 +714,53 @@ public partial class MainWindow : Window
         DocumentElement? element = _editor.Session.Document.Elements.FirstOrDefault(e => e.Id == activeId);
         if (element is null) return;
 
+        if (_editor.Session.Document.IsEffectivelyLocked(activeId)) return;
+
         _editor.Session.ExecuteCommand(new ResizeElementCommand(activeId, element.Bounds, newBounds));
+    }
+
+    private void CommitGroupName(string groupId, string name)
+    {
+        LabelDocument doc = _editor.Session.Document;
+        ElementGroup? group = doc.DesignMetadata.Groups
+            .FirstOrDefault(g => string.Equals(g.Id, groupId, StringComparison.Ordinal));
+        if (group is null) return;
+
+        string? newName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        if (string.Equals(group.Name, newName, StringComparison.Ordinal)) return;
+
+        ElementGroup updated = new ElementGroup(group.Id, newName, group.MemberIds, group.IsVisible, group.IsLocked);
+
+        List<ElementGroup> groups = doc.DesignMetadata.Groups
+            .Select(g => string.Equals(g.Id, groupId, StringComparison.Ordinal) ? updated : g)
+            .ToList();
+        DocumentDesignMetadata newMetadata = new(groups, doc.DesignMetadata.Guides, doc.DesignMetadata.Grid);
+
+        _editor.Session.ExecuteCommand(new ChangeDesignMetadataCommand(doc.DesignMetadata, newMetadata));
+    }
+
+    private void CommitGroupMetadata(string groupId, ElementGroup current, bool? visible = null, bool? locked = null)
+    {
+        LabelDocument doc = _editor.Session.Document;
+        ElementGroup? group = doc.DesignMetadata.Groups
+            .FirstOrDefault(g => string.Equals(g.Id, groupId, StringComparison.Ordinal));
+        if (group is null) return;
+
+        ElementGroup updated = new ElementGroup(
+            group.Id,
+            group.Name,
+            group.MemberIds,
+            visible ?? group.IsVisible,
+            locked ?? group.IsLocked);
+
+        if (updated.IsVisible == group.IsVisible && updated.IsLocked == group.IsLocked) return;
+
+        List<ElementGroup> groups = doc.DesignMetadata.Groups
+            .Select(g => string.Equals(g.Id, groupId, StringComparison.Ordinal) ? updated : g)
+            .ToList();
+        DocumentDesignMetadata newMetadata = new(groups, doc.DesignMetadata.Guides, doc.DesignMetadata.Grid);
+
+        _editor.Session.ExecuteCommand(new ChangeDesignMetadataCommand(doc.DesignMetadata, newMetadata));
     }
 
     private void CommitMetadata(IEnumerable<string> elementIds, Func<ElementMetadata, ElementMetadata> update)
@@ -699,72 +782,232 @@ public partial class MainWindow : Window
     }
 
     // Layers
+    private readonly HashSet<string> _collapsedGroups = new(StringComparer.Ordinal);
+
     private void UpdateLayers()
     {
         _updatingLayers = true;
         LayersList.Items.Clear();
 
+        LabelDocument doc = _editor.Session.Document;
+
         Dictionary<string, int> typeCounts = new(StringComparer.Ordinal);
         Dictionary<string, string> fallbackNames = new(StringComparer.Ordinal);
-        foreach (DocumentElement element in _editor.Session.Document.Elements)
+        foreach (DocumentElement element in doc.Elements)
         {
             string typeName = GetElementTypeName(element);
             typeCounts[typeName] = typeCounts.GetValueOrDefault(typeName) + 1;
             fallbackNames[element.Id] = $"{typeName} {typeCounts[typeName]}";
         }
 
-        foreach (DocumentElement element in _editor.Session.Document.Elements.Reverse())
+        Dictionary<string, ElementGroup> groupByMember = new(StringComparer.Ordinal);
+        foreach (ElementGroup group in doc.DesignMetadata.Groups)
         {
-            var row = new Grid { Margin = new Thickness(2), Tag = element.Id };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var visible = new CheckBox
+            foreach (string memberId in group.MemberIds)
             {
-                Content = "V",
-                IsChecked = element.IsVisible,
-                ToolTip = "Visible",
-                Margin = new Thickness(2, 0, 6, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            visible.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsVisible = visible.IsChecked == true });
-            Grid.SetColumn(visible, 0);
-            row.Children.Add(visible);
+                groupByMember[memberId] = group;
+            }
+        }
 
-            var locked = new CheckBox
+        HashSet<string> renderedGroupIds = new(StringComparer.Ordinal);
+        for (int i = doc.Elements.Count - 1; i >= 0; i--)
+        {
+            DocumentElement element = doc.Elements[i];
+            if (groupByMember.TryGetValue(element.Id, out ElementGroup? group))
             {
-                Content = "L",
-                IsChecked = element.IsLocked,
-                ToolTip = "Locked",
-                Margin = new Thickness(0, 0, 6, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            locked.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsLocked = locked.IsChecked == true });
-            Grid.SetColumn(locked, 1);
-            row.Children.Add(locked);
+                if (renderedGroupIds.Contains(group.Id)) continue;
+                renderedGroupIds.Add(group.Id);
 
-            var labels = new StackPanel();
-            labels.Children.Add(new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(element.Name) ? fallbackNames[element.Id] : element.Name,
-                Foreground = System.Windows.Media.Brushes.White,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            labels.Children.Add(new TextBlock
-            {
-                Text = element.ElementType,
-                Foreground = System.Windows.Media.Brushes.Gray,
-                FontSize = 10,
-            });
-            Grid.SetColumn(labels, 2);
-            row.Children.Add(labels);
+                bool collapsed = _collapsedGroups.Contains(group.Id);
+                var groupRow = CreateGroupRow(doc, group, collapsed);
+                LayersList.Items.Add(groupRow);
 
-            LayersList.Items.Add(new ListBoxItem { Content = row, Tag = element.Id });
+                if (!collapsed)
+                {
+                    foreach (string memberId in group.MemberIds)
+                    {
+                        DocumentElement? member = doc.Elements.FirstOrDefault(e => e.Id == memberId);
+                        if (member is null) continue;
+                        ListBoxItem memberRow = CreateMemberRow(doc, member, fallbackNames, group.Id);
+                        LayersList.Items.Add(memberRow);
+                    }
+                }
+            }
+            else
+            {
+                ListBoxItem row = CreateStandaloneRow(doc, element, fallbackNames);
+                LayersList.Items.Add(row);
+            }
         }
 
         UpdateLayersSelectionCore();
         _updatingLayers = false;
+    }
+
+    private ListBoxItem CreateGroupRow(LabelDocument doc, ElementGroup group, bool collapsed)
+    {
+        string displayName = string.IsNullOrWhiteSpace(group.Name) ? "Group" : group.Name;
+        var row = new Grid { Margin = new Thickness(2), Tag = group.Id };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var expandBtn = new Button
+        {
+            Content = collapsed ? "+" : "-",
+            Width = 20,
+            Height = 20,
+            Margin = new Thickness(0, 0, 4, 0),
+            Background = System.Windows.Media.Brushes.Transparent,
+            BorderBrush = System.Windows.Media.Brushes.Transparent,
+            Foreground = System.Windows.Media.Brushes.LightGray,
+            FontSize = 14,
+            Padding = new Thickness(0),
+        };
+        expandBtn.Click += (_, _) =>
+        {
+            if (_collapsedGroups.Contains(group.Id))
+                _collapsedGroups.Remove(group.Id);
+            else
+                _collapsedGroups.Add(group.Id);
+            UpdateLayers();
+        };
+        Grid.SetColumn(expandBtn, 0);
+        row.Children.Add(expandBtn);
+
+        var visible = new CheckBox
+        {
+            Content = "V",
+            IsChecked = group.IsVisible,
+            ToolTip = "Group Visible",
+            Margin = new Thickness(2, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        visible.Click += (_, _) => CommitGroupMetadata(group.Id, group with { }, visible: visible.IsChecked == true);
+        Grid.SetColumn(visible, 1);
+        row.Children.Add(visible);
+
+        var locked = new CheckBox
+        {
+            Content = "L",
+            IsChecked = group.IsLocked,
+            ToolTip = "Group Locked",
+            Margin = new Thickness(0, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        locked.Click += (_, _) => CommitGroupMetadata(group.Id, group with { }, locked: locked.IsChecked == true);
+        Grid.SetColumn(locked, 2);
+        row.Children.Add(locked);
+
+        var label = new TextBlock
+        {
+            Text = $"{displayName} ({group.MemberIds.Count})",
+            Foreground = System.Windows.Media.Brushes.White,
+            FontWeight = FontWeights.Bold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(label, 3);
+        row.Children.Add(label);
+
+        return new ListBoxItem { Content = row, Tag = group.Id };
+    }
+
+    private ListBoxItem CreateMemberRow(LabelDocument doc, DocumentElement element, Dictionary<string, string> fallbackNames, string groupId)
+    {
+        var row = new Grid { Margin = new Thickness(24, 2, 2, 2), Tag = element.Id };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var visible = new CheckBox
+        {
+            Content = "V",
+            IsChecked = element.IsVisible,
+            ToolTip = "Visible",
+            Margin = new Thickness(2, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        visible.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsVisible = visible.IsChecked == true });
+        Grid.SetColumn(visible, 0);
+        row.Children.Add(visible);
+
+        var locked = new CheckBox
+        {
+            Content = "L",
+            IsChecked = element.IsLocked,
+            ToolTip = "Locked",
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        locked.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsLocked = locked.IsChecked == true });
+        Grid.SetColumn(locked, 1);
+        row.Children.Add(locked);
+
+        string displayName = string.IsNullOrWhiteSpace(element.Name) ? fallbackNames[element.Id] : element.Name;
+        var label = new TextBlock
+        {
+            Text = $"{displayName} ({element.ElementType})",
+            Foreground = System.Windows.Media.Brushes.LightGray,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(label, 2);
+        row.Children.Add(label);
+
+        return new ListBoxItem { Content = row, Tag = element.Id, IsHitTestVisible = true };
+    }
+
+    private ListBoxItem CreateStandaloneRow(LabelDocument doc, DocumentElement element, Dictionary<string, string> fallbackNames)
+    {
+        var row = new Grid { Margin = new Thickness(2), Tag = element.Id };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var visible = new CheckBox
+        {
+            Content = "V",
+            IsChecked = element.IsVisible,
+            ToolTip = "Visible",
+            Margin = new Thickness(2, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        visible.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsVisible = visible.IsChecked == true });
+        Grid.SetColumn(visible, 0);
+        row.Children.Add(visible);
+
+        var locked = new CheckBox
+        {
+            Content = "L",
+            IsChecked = element.IsLocked,
+            ToolTip = "Locked",
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        locked.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsLocked = locked.IsChecked == true });
+        Grid.SetColumn(locked, 1);
+        row.Children.Add(locked);
+
+        string displayName = string.IsNullOrWhiteSpace(element.Name) ? fallbackNames[element.Id] : element.Name;
+        var labels = new StackPanel();
+        labels.Children.Add(new TextBlock
+        {
+            Text = displayName,
+            Foreground = System.Windows.Media.Brushes.White,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        labels.Children.Add(new TextBlock
+        {
+            Text = element.ElementType,
+            Foreground = System.Windows.Media.Brushes.Gray,
+            FontSize = 10,
+        });
+        Grid.SetColumn(labels, 2);
+        row.Children.Add(labels);
+
+        return new ListBoxItem { Content = row, Tag = element.Id };
     }
 
     private void UpdateLayersSelection()
@@ -776,17 +1019,79 @@ public partial class MainWindow : Window
 
     private void UpdateLayersSelectionCore()
     {
+        LabelDocument doc = _editor.Session.Document;
         foreach (ListBoxItem item in LayersList.Items)
         {
-            item.IsSelected = item.Tag is string id && _editor.Selection.Contains(id);
+            if (item.Tag is string id)
+            {
+                bool isGroupRow = doc.DesignMetadata.Groups.Any(g => string.Equals(g.Id, id, StringComparison.Ordinal));
+                item.IsSelected = isGroupRow
+                    ? _editor.Selection.ContainsGroup(id)
+                    : _editor.Selection.ContainsElement(id) && !_editor.Selection.IsGroupMember(doc, id);
+            }
         }
     }
 
     private void OnLayersSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_updatingLayers) return;
-        _editor.Selection.SetSelection(LayersList.SelectedItems.Cast<ListBoxItem>()
-            .Select(item => (string)item.Tag));
+
+        LabelDocument doc = _editor.Session.Document;
+        List<SelectionTarget> targets = new();
+
+        foreach (ListBoxItem item in LayersList.SelectedItems.Cast<ListBoxItem>())
+        {
+            if (item.Tag is not string id) continue;
+
+            bool isGroup = doc.DesignMetadata.Groups.Any(g => string.Equals(g.Id, id, StringComparison.Ordinal));
+            if (isGroup)
+            {
+                targets.Add(SelectionTarget.Group(id));
+            }
+            else
+            {
+                string? groupId = doc.FindGroupIdForMember(id);
+                if (groupId is not null)
+                {
+                    if (!targets.Any(t => t is SelectionTarget.GroupTarget g && g.GroupId == groupId))
+                    {
+                        targets.Add(SelectionTarget.Group(groupId));
+                    }
+                }
+                else
+                {
+                    targets.Add(SelectionTarget.Element(id));
+                }
+            }
+        }
+
+        _editor.Selection.SetSelection(targets.Distinct());
+    }
+
+    private void OnGroup(object sender, RoutedEventArgs e)
+    {
+        if (!_editor.Selection.HasSelection) return;
+        LabelDocument doc = _editor.Session.Document;
+        IReadOnlyCollection<string> elementIds = _editor.Selection.GetSelectedElementIds(doc);
+        if (elementIds.Count < 2) return;
+
+        var cmd = new GroupElementsCommand(elementIds, doc);
+        _editor.Session.ExecuteCommand(cmd);
+        _editor.Selection.SelectGroup(cmd.GroupId);
+    }
+
+    private void OnUngroup(object sender, RoutedEventArgs e)
+    {
+        if (_editor.Selection.ActiveGroupId is null) return;
+        LabelDocument doc = _editor.Session.Document;
+        string groupId = _editor.Selection.ActiveGroupId;
+
+        ElementGroup? group = doc.DesignMetadata.Groups
+            .FirstOrDefault(g => string.Equals(g.Id, groupId, StringComparison.Ordinal));
+        if (group is null) return;
+
+        _editor.Session.ExecuteCommand(new UngroupElementsCommand(groupId, doc));
+        _editor.Selection.SetElementSelection(group.MemberIds);
     }
 
     private void OnBringForward(object sender, RoutedEventArgs e) => ExecuteZOrder(
@@ -804,7 +1109,44 @@ public partial class MainWindow : Window
     private void ExecuteZOrder(Func<IEnumerable<string>, LabelDocument, IEditorCommand> createCommand)
     {
         if (!_editor.Selection.HasSelection) return;
-        _editor.Session.ExecuteCommand(createCommand(_editor.Selection.SelectedIds, _editor.Session.Document));
+        LabelDocument doc = _editor.Session.Document;
+        List<string> ids = new();
+
+        foreach (SelectionTarget target in _editor.Selection.Targets)
+        {
+            switch (target)
+            {
+                case SelectionTarget.GroupTarget grp:
+                    ElementGroup? group = doc.DesignMetadata.Groups
+                        .FirstOrDefault(g => string.Equals(g.Id, grp.GroupId, StringComparison.Ordinal));
+                    if (group is not null)
+                    {
+                        ids.AddRange(group.MemberIds);
+                    }
+                    break;
+                case SelectionTarget.ElementTarget elem:
+                    string? groupId = doc.FindGroupIdForMember(elem.ElementId);
+                    if (groupId is not null)
+                    {
+                        ElementGroup? g = doc.DesignMetadata.Groups
+                            .FirstOrDefault(gg => string.Equals(gg.Id, groupId, StringComparison.Ordinal));
+                        if (g is not null && !ids.Contains(g.Id))
+                        {
+                            ids.AddRange(g.MemberIds);
+                        }
+                    }
+                    else
+                    {
+                        ids.Add(elem.ElementId);
+                    }
+                    break;
+            }
+        }
+
+        if (ids.Count > 0)
+        {
+            _editor.Session.ExecuteCommand(createCommand(ids.Distinct(), doc));
+        }
     }
 
     private static string GetElementTypeName(DocumentElement element) => element switch

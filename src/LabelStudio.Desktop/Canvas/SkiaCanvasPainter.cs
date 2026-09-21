@@ -5,6 +5,7 @@ using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Selection;
+using SelectionTarget = LabelStudio.Editor.Selection.SelectionTarget;
 
 namespace LabelStudio.Desktop.Canvas;
 
@@ -37,13 +38,15 @@ public sealed class SkiaCanvasPainter
         LabelDocument doc = editor.Session.Document;
         CanvasTransform view = editor.ViewTransform;
 
+        HashSet<string> selectedElementIds = editor.Selection.GetSelectedElementIds(doc).ToHashSet(StringComparer.Ordinal);
+
         int savedState = canvas.Save();
         canvas.Scale(renderScale);
 
         DrawLabelArea(canvas, doc, view);
         DrawPrintableArea(canvas, doc, view);
-        DrawElements(canvas, doc, view, editor.Selection.SelectedIds);
-        DrawSelection(canvas, doc, view, editor.Selection);
+        DrawElements(canvas, doc, view, selectedElementIds);
+        DrawSelection(canvas, doc, view, editor.Selection, selectedElementIds);
         DrawHover(canvas, doc, view, hoverElementId);
 
         if (creationPreview is not null)
@@ -88,12 +91,12 @@ public sealed class SkiaCanvasPainter
         canvas.DrawRect((float)x, (float)y, (float)w, (float)h, border);
     }
 
-    private static void DrawElements(SKCanvas canvas, LabelDocument doc, CanvasTransform view, IReadOnlyCollection<string> selectedIds)
+    private static void DrawElements(SKCanvas canvas, LabelDocument doc, CanvasTransform view, HashSet<string> selectedElementIds)
     {
         foreach (DocumentElement element in doc.Elements)
         {
             if (!doc.IsEffectivelyVisible(element)) continue;
-            bool isSelected = selectedIds.Contains(element.Id);
+            bool isSelected = selectedElementIds.Contains(element.Id);
             DrawElement(canvas, element, view, isSelected);
         }
     }
@@ -164,13 +167,13 @@ public sealed class SkiaCanvasPainter
         }
     }
 
-    private static void DrawSelection(SKCanvas canvas, LabelDocument doc, CanvasTransform view, SelectionModel selection)
+    private static void DrawSelection(SKCanvas canvas, LabelDocument doc, CanvasTransform view, SelectionModel selection, HashSet<string> selectedElementIds)
     {
         if (!selection.HasSelection) return;
 
         using SKPaint selPaint = new() { Color = SelectionColor, IsStroke = true, StrokeWidth = 1.5f, IsAntialias = true };
 
-        foreach (string id in selection.SelectedIds)
+        foreach (string id in selectedElementIds)
         {
             DocumentElement? element = doc.Elements.FirstOrDefault(e => e.Id == id);
             if (element is null || !doc.IsEffectivelyVisible(element)) continue;
@@ -186,6 +189,23 @@ public sealed class SkiaCanvasPainter
             if (id == selection.ActiveId)
             {
                 DrawHandles(canvas, x, y, w, h);
+            }
+        }
+
+        foreach (SelectionTarget target in selection.Targets)
+        {
+            if (target is SelectionTarget.GroupTarget grp)
+            {
+                MicrometreRect groupBounds = GroupGeometry.GetGroupBounds(doc, grp.GroupId);
+                if (groupBounds.Width <= Micrometre.Zero && groupBounds.Height <= Micrometre.Zero) continue;
+
+                float gx = (float)view.DocumentToCanvasX(groupBounds.X);
+                float gy = (float)view.DocumentToCanvasY(groupBounds.Y);
+                float gw = (float)view.DocumentToCanvasLength(groupBounds.Width);
+                float gh = (float)view.DocumentToCanvasLength(groupBounds.Height);
+
+                using SKPaint groupPaint = new() { Color = new(0x66007ACC), IsStroke = true, StrokeWidth = 2.5f, IsAntialias = true };
+                canvas.DrawRect(gx - 4, gy - 4, gw + 8, gh + 8, groupPaint);
             }
         }
     }
@@ -216,7 +236,11 @@ public sealed class SkiaCanvasPainter
         DocumentElement? element = doc.Elements.FirstOrDefault(e => e.Id == hoverId);
         if (element is null || !doc.IsEffectivelyVisible(element)) return;
 
-        MicrometreRect bounds = element.Bounds;
+        string? groupId = doc.FindGroupIdForMember(hoverId);
+        MicrometreRect bounds = groupId is not null
+            ? GroupGeometry.GetGroupBounds(doc, groupId)
+            : element.Bounds;
+
         float x = (float)view.DocumentToCanvasX(bounds.X);
         float y = (float)view.DocumentToCanvasY(bounds.Y);
         float w = (float)view.DocumentToCanvasLength(bounds.Width);

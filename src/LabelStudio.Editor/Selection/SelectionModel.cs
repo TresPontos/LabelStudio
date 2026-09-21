@@ -1,77 +1,236 @@
+using System.Collections.ObjectModel;
 using LabelStudio.Document;
+using LabelStudio.Document.Elements;
+using LabelStudio.Document.Units;
 
 namespace LabelStudio.Editor.Selection;
 
 public sealed class SelectionModel
 {
-    private readonly HashSet<string> _selectedIds = new();
+    private readonly Dictionary<string, SelectionTarget> _targets = new(StringComparer.Ordinal);
     private string? _activeId;
+    private string? _activeGroupId;
 
-    public IReadOnlyCollection<string> SelectedIds => _selectedIds;
+    public IReadOnlyCollection<SelectionTarget> Targets => _targets.Values.ToList().AsReadOnly();
+    public IReadOnlyCollection<string> SelectedIds => _targets.Keys.ToList().AsReadOnly();
     public string? ActiveId => _activeId;
-    public bool IsMultiSelect => _selectedIds.Count > 1;
-    public bool HasSelection => _selectedIds.Count > 0;
-    public int Count => _selectedIds.Count;
+    public string? ActiveGroupId => _activeGroupId;
+    public bool IsMultiSelect => _targets.Count > 1;
+    public bool HasSelection => _targets.Count > 0;
+    public int Count => _targets.Count;
 
     public event EventHandler? SelectionChanged;
 
-    public void Select(string elementId)
+    public bool Contains(string id) => _targets.ContainsKey(id);
+
+    public bool ContainsElement(string elementId) =>
+        _targets.TryGetValue(elementId, out SelectionTarget? target) && target is SelectionTarget.ElementTarget;
+
+    public bool ContainsGroup(string groupId) =>
+        _targets.TryGetValue(groupId, out SelectionTarget? target) && target is SelectionTarget.GroupTarget;
+
+    public bool IsGroupMember(LabelDocument document, string elementId)
     {
-        _selectedIds.Clear();
-        _selectedIds.Add(elementId);
+        return document.DesignMetadata.Groups
+            .Any(group => group.MemberIds.Contains(elementId, StringComparer.Ordinal) &&
+                          _targets.ContainsKey(group.Id));
+    }
+
+    public IReadOnlyCollection<string> GetSelectedElementIds(LabelDocument document)
+    {
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        foreach (SelectionTarget target in _targets.Values)
+        {
+            switch (target)
+            {
+                case SelectionTarget.ElementTarget elem:
+                    ids.Add(elem.ElementId);
+                    break;
+                case SelectionTarget.GroupTarget grp:
+                    ElementGroup? group = document.DesignMetadata.Groups
+                        .FirstOrDefault(g => string.Equals(g.Id, grp.GroupId, StringComparison.Ordinal));
+                    if (group is not null)
+                    {
+                        foreach (string memberId in group.MemberIds)
+                        {
+                            ids.Add(memberId);
+                        }
+                    }
+                    break;
+            }
+        }
+        return ids;
+    }
+
+    public IReadOnlyCollection<string> GetTransformableElementIds(LabelDocument document)
+    {
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        HashSet<string> visitedGroups = new(StringComparer.Ordinal);
+        foreach (SelectionTarget target in _targets.Values)
+        {
+            switch (target)
+            {
+                case SelectionTarget.ElementTarget elem:
+                    if (!document.IsEffectivelyLocked(elem.ElementId))
+                    {
+                        ids.Add(elem.ElementId);
+                    }
+                    break;
+                case SelectionTarget.GroupTarget grp:
+                    if (visitedGroups.Contains(grp.GroupId)) break;
+                    visitedGroups.Add(grp.GroupId);
+                    ElementGroup? group = document.DesignMetadata.Groups
+                        .FirstOrDefault(g => string.Equals(g.Id, grp.GroupId, StringComparison.Ordinal));
+                    if (group is null) break;
+                    if (group.IsLocked) break;
+                    foreach (string memberId in group.MemberIds)
+                    {
+                        if (document.IsEffectivelyLocked(memberId)) continue;
+                        ids.Add(memberId);
+                    }
+                    break;
+            }
+        }
+        return ids;
+    }
+
+    public bool HasLockedMembers(LabelDocument document)
+    {
+        foreach (SelectionTarget target in _targets.Values)
+        {
+            if (target is SelectionTarget.GroupTarget grp)
+            {
+                ElementGroup? group = document.DesignMetadata.Groups
+                    .FirstOrDefault(g => string.Equals(g.Id, grp.GroupId, StringComparison.Ordinal));
+                if (group is null) continue;
+                if (group.IsLocked) return true;
+                foreach (string memberId in group.MemberIds)
+                {
+                    if (document.IsEffectivelyLocked(memberId)) return true;
+                }
+            }
+            else if (target is SelectionTarget.ElementTarget elem)
+            {
+                if (document.IsEffectivelyLocked(elem.ElementId)) return true;
+            }
+        }
+        return false;
+    }
+
+    public void SelectElement(string elementId)
+    {
+        _targets.Clear();
+        _targets[elementId] = SelectionTarget.Element(elementId);
         _activeId = elementId;
+        _activeGroupId = null;
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void ToggleSelect(string elementId)
+    public void SelectGroup(string groupId)
     {
-        if (_selectedIds.Contains(elementId))
+        _targets.Clear();
+        _targets[groupId] = SelectionTarget.Group(groupId);
+        _activeId = null;
+        _activeGroupId = groupId;
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void ToggleSelectElement(string elementId)
+    {
+        if (_targets.ContainsKey(elementId))
         {
-            _selectedIds.Remove(elementId);
+            _targets.Remove(elementId);
             if (_activeId == elementId)
             {
-                _activeId = _selectedIds.LastOrDefault();
+                _activeId = _targets.Values.OfType<SelectionTarget.ElementTarget>().LastOrDefault()?.ElementId;
             }
         }
         else
         {
-            _selectedIds.Add(elementId);
+            _targets[elementId] = SelectionTarget.Element(elementId);
             _activeId = elementId;
         }
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void SetSelection(IEnumerable<string> ids)
+    public void SetSelection(IEnumerable<SelectionTarget> targets)
     {
-        _selectedIds.Clear();
-        foreach (string id in ids)
+        _targets.Clear();
+        foreach (SelectionTarget target in targets)
         {
-            _selectedIds.Add(id);
+            _targets[target.Id] = target;
         }
-        _activeId = _selectedIds.LastOrDefault();
+        UpdateActiveFromTargets();
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void SetElementSelection(IEnumerable<string> elementIds)
+    {
+        _targets.Clear();
+        foreach (string id in elementIds)
+        {
+            _targets[id] = SelectionTarget.Element(id);
+        }
+        UpdateActiveFromTargets();
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void Clear()
     {
-        _selectedIds.Clear();
+        _targets.Clear();
         _activeId = null;
+        _activeGroupId = null;
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public bool Contains(string elementId) => _selectedIds.Contains(elementId);
-
     public void PruneDeleted(LabelDocument document)
     {
-        HashSet<string> existing = document.Elements.Select(e => e.Id).ToHashSet();
-        if (_selectedIds.Except(existing).Any())
+        HashSet<string> existingElementIds = document.Elements.Select(e => e.Id).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> existingGroupIds = document.DesignMetadata.Groups.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
+        bool changed = false;
+
+        List<string> toRemove = [];
+        foreach (KeyValuePair<string, SelectionTarget> entry in _targets)
         {
-            _selectedIds.RemoveWhere(id => !existing.Contains(id));
-            if (_activeId is not null && !existing.Contains(_activeId))
+            bool exists = entry.Value switch
             {
-                _activeId = _selectedIds.LastOrDefault();
+                SelectionTarget.ElementTarget => existingElementIds.Contains(entry.Key),
+                SelectionTarget.GroupTarget => existingGroupIds.Contains(entry.Key),
+                _ => false,
+            };
+            if (!exists)
+            {
+                toRemove.Add(entry.Key);
             }
+        }
+
+        foreach (string id in toRemove)
+        {
+            _targets.Remove(id);
+            changed = true;
+        }
+
+        if (_activeId is not null && !existingElementIds.Contains(_activeId))
+        {
+            _activeId = _targets.Values.OfType<SelectionTarget.ElementTarget>().LastOrDefault()?.ElementId;
+            changed = true;
+        }
+
+        if (_activeGroupId is not null && !existingGroupIds.Contains(_activeGroupId))
+        {
+            _activeGroupId = _targets.Values.OfType<SelectionTarget.GroupTarget>().LastOrDefault()?.GroupId;
+            changed = true;
+        }
+
+        if (changed)
+        {
             SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    private void UpdateActiveFromTargets()
+    {
+        _activeId = _targets.Values.OfType<SelectionTarget.ElementTarget>().LastOrDefault()?.ElementId;
+        _activeGroupId = _targets.Values.OfType<SelectionTarget.GroupTarget>().LastOrDefault()?.GroupId;
     }
 }
