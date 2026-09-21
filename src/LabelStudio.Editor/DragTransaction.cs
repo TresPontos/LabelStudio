@@ -14,6 +14,7 @@ public sealed class DragTransaction
 
     public bool IsActive => _active;
     public IReadOnlyDictionary<string, MicrometreRect> CurrentBounds => _currentBounds;
+    public IReadOnlyDictionary<string, MicrometreRect> OriginalBounds => _beforeBounds;
 
     public void Begin(IReadOnlyCollection<string> elementIds, LabelDocument document)
     {
@@ -41,13 +42,17 @@ public sealed class DragTransaction
         _currentBounds[elementId] = newBounds;
     }
 
-    public IEditorCommand? Commit(LabelDocument document)
+    public IEditorCommand? Commit(LabelDocument document, IReadOnlyDictionary<string, MicrometreRect>? previewBounds = null)
     {
         if (!_active) return null;
         _active = false;
 
+        Dictionary<string, MicrometreRect> finalBounds = previewBounds is not null
+            ? previewBounds.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal)
+            : new Dictionary<string, MicrometreRect>(_currentBounds, StringComparer.Ordinal);
+
         var replacements = new List<(DocumentElement Before, DocumentElement After)>();
-        foreach (KeyValuePair<string, MicrometreRect> entry in _currentBounds)
+        foreach (KeyValuePair<string, MicrometreRect> entry in finalBounds)
         {
             if (_beforeBounds.TryGetValue(entry.Key, out MicrometreRect oldBounds) && oldBounds != entry.Value)
             {

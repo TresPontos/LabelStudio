@@ -5,6 +5,7 @@ using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Selection;
+using LabelStudio.Editor.Transforms;
 using SelectionTarget = LabelStudio.Editor.Selection.SelectionTarget;
 
 namespace LabelStudio.Desktop.Canvas;
@@ -31,7 +32,8 @@ public sealed class SkiaCanvasPainter
         float renderScale,
         EditorState editor,
         string? hoverElementId,
-        MicrometreRect? creationPreview)
+        MicrometreRect? creationPreview,
+        IReadOnlyDictionary<string, MicrometreRect>? previewBounds = null)
     {
         canvas.Clear(WorkspaceColor);
 
@@ -45,8 +47,8 @@ public sealed class SkiaCanvasPainter
 
         DrawLabelArea(canvas, doc, view);
         DrawPrintableArea(canvas, doc, view);
-        DrawElements(canvas, doc, view, selectedElementIds);
-        DrawSelection(canvas, doc, view, editor.Selection, selectedElementIds);
+        DrawElements(canvas, doc, view, selectedElementIds, previewBounds);
+        DrawSelection(canvas, doc, view, editor.Selection, selectedElementIds, previewBounds);
         DrawHover(canvas, doc, view, hoverElementId);
 
         if (creationPreview is not null)
@@ -91,19 +93,29 @@ public sealed class SkiaCanvasPainter
         canvas.DrawRect((float)x, (float)y, (float)w, (float)h, border);
     }
 
-    private static void DrawElements(SKCanvas canvas, LabelDocument doc, CanvasTransform view, HashSet<string> selectedElementIds)
+    private static void DrawElements(SKCanvas canvas, LabelDocument doc, CanvasTransform view, HashSet<string> selectedElementIds, IReadOnlyDictionary<string, MicrometreRect>? previewBounds)
     {
         foreach (DocumentElement element in doc.Elements)
         {
             if (!doc.IsEffectivelyVisible(element)) continue;
             bool isSelected = selectedElementIds.Contains(element.Id);
-            DrawElement(canvas, element, view, isSelected);
+
+            if (previewBounds is not null && previewBounds.TryGetValue(element.Id, out MicrometreRect preview))
+            {
+                DrawElementAt(canvas, element, view, preview, isSelected);
+            }
+            else
+            {
+                DrawElementAt(canvas, element, view, element.Bounds, isSelected);
+            }
         }
     }
 
     private static void DrawElement(SKCanvas canvas, DocumentElement element, CanvasTransform view, bool isSelected)
+        => DrawElementAt(canvas, element, view, element.Bounds, isSelected);
+
+    private static void DrawElementAt(SKCanvas canvas, DocumentElement element, CanvasTransform view, MicrometreRect bounds, bool isSelected)
     {
-        MicrometreRect bounds = element.Bounds;
         float x = (float)view.DocumentToCanvasX(bounds.X);
         float y = (float)view.DocumentToCanvasY(bounds.Y);
         float w = (float)view.DocumentToCanvasLength(bounds.Width);
@@ -131,10 +143,12 @@ public sealed class SkiaCanvasPainter
                 int thickness = Math.Max(1, (int)view.DocumentToCanvasLength(line.Thickness));
                 using (SKPaint linePaint = new() { Color = inkColor, StrokeWidth = thickness, IsStroke = true, IsAntialias = true })
                 {
-                    float sx = (float)view.DocumentToCanvasX(line.Start.X);
-                    float sy = (float)view.DocumentToCanvasY(line.Start.Y);
-                    float ex = (float)view.DocumentToCanvasX(line.End.X);
-                    float ey = (float)view.DocumentToCanvasY(line.End.Y);
+                    int offsetX = bounds.X.Value - line.Bounds.X.Value;
+                    int offsetY = bounds.Y.Value - line.Bounds.Y.Value;
+                    float sx = (float)view.DocumentToCanvasX(new Micrometre(line.Start.X.Value + offsetX));
+                    float sy = (float)view.DocumentToCanvasY(new Micrometre(line.Start.Y.Value + offsetY));
+                    float ex = (float)view.DocumentToCanvasX(new Micrometre(line.End.X.Value + offsetX));
+                    float ey = (float)view.DocumentToCanvasY(new Micrometre(line.End.Y.Value + offsetY));
                     canvas.DrawLine(sx, sy, ex, ey, linePaint);
                 }
                 break;
@@ -167,7 +181,7 @@ public sealed class SkiaCanvasPainter
         }
     }
 
-    private static void DrawSelection(SKCanvas canvas, LabelDocument doc, CanvasTransform view, SelectionModel selection, HashSet<string> selectedElementIds)
+    private static void DrawSelection(SKCanvas canvas, LabelDocument doc, CanvasTransform view, SelectionModel selection, HashSet<string> selectedElementIds, IReadOnlyDictionary<string, MicrometreRect>? previewBounds)
     {
         if (!selection.HasSelection) return;
 
@@ -178,43 +192,58 @@ public sealed class SkiaCanvasPainter
             DocumentElement? element = doc.Elements.FirstOrDefault(e => e.Id == id);
             if (element is null || !doc.IsEffectivelyVisible(element)) continue;
 
-            MicrometreRect bounds = element.Bounds;
+            MicrometreRect bounds = previewBounds is not null && previewBounds.TryGetValue(id, out MicrometreRect preview)
+                ? preview
+                : element.Bounds;
             float x = (float)view.DocumentToCanvasX(bounds.X);
             float y = (float)view.DocumentToCanvasY(bounds.Y);
             float w = (float)view.DocumentToCanvasLength(bounds.Width);
             float h = (float)view.DocumentToCanvasLength(bounds.Height);
 
             canvas.DrawRect(x - 2, y - 2, w + 4, h + 4, selPaint);
-
-            if (id == selection.ActiveId)
-            {
-                DrawHandles(canvas, x, y, w, h);
-            }
         }
 
-        foreach (SelectionTarget target in selection.Targets)
+        MicrometreRect combinedBounds;
+        if (previewBounds is not null && previewBounds.Count > 0)
         {
-            if (target is SelectionTarget.GroupTarget grp)
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            foreach (MicrometreRect b in previewBounds.Values)
             {
-                MicrometreRect groupBounds = GroupGeometry.GetGroupBounds(doc, grp.GroupId);
-                if (groupBounds.Width <= Micrometre.Zero && groupBounds.Height <= Micrometre.Zero) continue;
-
-                float gx = (float)view.DocumentToCanvasX(groupBounds.X);
-                float gy = (float)view.DocumentToCanvasY(groupBounds.Y);
-                float gw = (float)view.DocumentToCanvasLength(groupBounds.Width);
-                float gh = (float)view.DocumentToCanvasLength(groupBounds.Height);
-
-                using SKPaint groupPaint = new() { Color = new(0x66007ACC), IsStroke = true, StrokeWidth = 2.5f, IsAntialias = true };
-                canvas.DrawRect(gx - 4, gy - 4, gw + 8, gh + 8, groupPaint);
+                minX = Math.Min(minX, b.X.Value);
+                minY = Math.Min(minY, b.Y.Value);
+                maxX = Math.Max(maxX, b.Right.Value);
+                maxY = Math.Max(maxY, b.Bottom.Value);
             }
+            combinedBounds = new MicrometreRect(new(minX), new(minY), new(maxX - minX), new(maxY - minY));
         }
+        else
+        {
+            combinedBounds = SelectionBounds.GetCombinedBounds(doc, selectedElementIds);
+        }
+
+        if (combinedBounds.Width <= Micrometre.Zero && combinedBounds.Height <= Micrometre.Zero) return;
+
+        float cx = (float)view.DocumentToCanvasX(combinedBounds.X);
+        float cy = (float)view.DocumentToCanvasY(combinedBounds.Y);
+        float cw = (float)view.DocumentToCanvasLength(combinedBounds.Width);
+        float ch = (float)view.DocumentToCanvasLength(combinedBounds.Height);
+
+        using SKPaint combinedPaint = new()
+        {
+            Color = SelectionColor,
+            IsStroke = true,
+            StrokeWidth = 2f,
+            IsAntialias = true,
+        };
+        canvas.DrawRect(cx - 4, cy - 4, cw + 8, ch + 8, combinedPaint);
+        DrawHandles(canvas, cx, cy, cw, ch);
     }
 
     private static void DrawHandles(SKCanvas canvas, float x, float y, float w, float h)
     {
-        float hs = 6f;
-        float[] xs = [x - 2, x + w / 2 - hs / 2, x + w - hs + 2];
-        float[] ys = [y - 2, y + h / 2 - hs / 2, y + h - hs + 2];
+        float hs = 8f;
+        float[] xs = [x - hs / 2, x + w / 2 - hs / 2, x + w - hs / 2];
+        float[] ys = [y - hs / 2, y + h / 2 - hs / 2, y + h - hs / 2];
 
         using SKPaint handlePaint = new() { Color = HandleColor, IsAntialias = true };
         using SKPaint borderPaint = new() { Color = HandleBorderColor, IsStroke = true, StrokeWidth = 1, IsAntialias = true };

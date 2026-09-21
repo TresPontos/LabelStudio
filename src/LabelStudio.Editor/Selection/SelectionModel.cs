@@ -65,32 +65,35 @@ public sealed class SelectionModel
     public IReadOnlyCollection<string> GetTransformableElementIds(LabelDocument document)
     {
         HashSet<string> ids = new(StringComparer.Ordinal);
-        HashSet<string> visitedGroups = new(StringComparer.Ordinal);
         foreach (SelectionTarget target in _targets.Values)
         {
             switch (target)
             {
                 case SelectionTarget.ElementTarget elem:
-                    if (!document.IsEffectivelyLocked(elem.ElementId))
-                    {
-                        ids.Add(elem.ElementId);
-                    }
+                    ids.Add(elem.ElementId);
                     break;
                 case SelectionTarget.GroupTarget grp:
-                    if (visitedGroups.Contains(grp.GroupId)) break;
-                    visitedGroups.Add(grp.GroupId);
                     ElementGroup? group = document.DesignMetadata.Groups
                         .FirstOrDefault(g => string.Equals(g.Id, grp.GroupId, StringComparison.Ordinal));
-                    if (group is null) break;
-                    if (group.IsLocked) break;
-                    foreach (string memberId in group.MemberIds)
+                    if (group is not null)
                     {
-                        if (document.IsEffectivelyLocked(memberId)) continue;
-                        ids.Add(memberId);
+                        foreach (string memberId in group.MemberIds)
+                        {
+                            ids.Add(memberId);
+                        }
                     }
                     break;
             }
         }
+
+        foreach (string id in ids)
+        {
+            if (document.IsEffectivelyLocked(id) || !document.IsEffectivelyVisible(id))
+            {
+                return new List<string>().AsReadOnly();
+            }
+        }
+
         return ids;
     }
 

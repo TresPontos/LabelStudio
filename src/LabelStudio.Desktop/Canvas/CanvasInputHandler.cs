@@ -7,8 +7,8 @@ using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Commands;
 using LabelStudio.Editor.Selection;
+using LabelStudio.Editor.Transforms;
 using SkiaSharp.Views.Desktop;
-using SelectionTarget = LabelStudio.Editor.Selection.SelectionTarget;
 
 namespace LabelStudio.Desktop.Canvas;
 
@@ -37,6 +37,9 @@ public enum ResizeHandle
 
 public sealed class CanvasInputHandler
 {
+    private const double HandleSizeDip = 8.0;
+    private const double HandleHitToleranceDip = 6.0;
+
     private readonly EditorState _editor;
     private readonly SkiaCanvasPainter _painter;
     private readonly Action _invalidate;
@@ -51,9 +54,17 @@ public sealed class CanvasInputHandler
     private double _panStartOffsetY;
     private string? _hoverElementId;
 
+    private MicrometreRect _resizeOriginalBounds;
+    private List<string> _transformIds = [];
+    private Dictionary<string, MicrometreRect> _previewBounds = new(StringComparer.Ordinal);
+
     public string? HoverElementId => _hoverElementId;
     public MicrometreRect? CreationPreview =>
         _mode == InteractionMode.Creating ? _creationStartBounds : null;
+    public IReadOnlyDictionary<string, MicrometreRect>? PreviewBounds =>
+        _mode is InteractionMode.Dragging or InteractionMode.Resizing && _previewBounds.Count > 0
+            ? _previewBounds
+            : null;
 
     public CanvasInputHandler(EditorState editor, SkiaCanvasPainter painter, Action invalidate)
     {
@@ -82,7 +93,7 @@ public sealed class CanvasInputHandler
         switch (_editor.ActiveTool)
         {
             case EditorTool.Select:
-                HandleSelectMouseDown(docPoint, tolerance, e);
+                HandleSelectMouseDown(sender, pos, docPoint, tolerance, e);
                 break;
             case EditorTool.Rectangle:
             case EditorTool.Line:
@@ -109,16 +120,12 @@ public sealed class CanvasInputHandler
             case InteractionMode.Dragging:
                 int dx = docPoint.X.Value - _interactionStart.X.Value;
                 int dy = docPoint.Y.Value - _interactionStart.Y.Value;
-                IReadOnlyCollection<string> dragIds = _editor.Selection.GetTransformableElementIds(_editor.Session.Document);
-                foreach (string id in dragIds)
+                foreach (string id in _transformIds)
                 {
-                    Document.Elements.DocumentElement? elem = _editor.Session.Document.Elements.FirstOrDefault(el => el.Id == id);
-                    if (elem is null) continue;
-                    MicrometreRect orig = elem.Bounds;
-                    MicrometreRect newBounds = new(
+                    MicrometreRect orig = _editor.Drag.OriginalBounds[id];
+                    _previewBounds[id] = new(
                         new(orig.X.Value + dx), new(orig.Y.Value + dy),
                         orig.Width, orig.Height);
-                    _editor.Drag.UpdatePreview(id, newBounds);
                 }
                 _invalidate();
                 break;
@@ -148,11 +155,8 @@ public sealed class CanvasInputHandler
         switch (_mode)
         {
             case InteractionMode.Dragging:
-                IEditorCommand? cmd = _editor.Drag.Commit(_editor.Session.Document);
-                if (cmd is not null)
-                {
-                    _editor.Session.ExecuteCommand(cmd);
-                }
+            case InteractionMode.Resizing:
+                CommitTransform();
                 break;
 
             case InteractionMode.Creating:
@@ -161,6 +165,7 @@ public sealed class CanvasInputHandler
         }
 
         _mode = InteractionMode.None;
+        _previewBounds.Clear();
         _invalidate();
     }
 
@@ -177,7 +182,11 @@ public sealed class CanvasInputHandler
     {
         if (_mode != InteractionMode.None && e.Key == Key.Escape)
         {
-            if (_mode == InteractionMode.Dragging) _editor.Drag.Cancel();
+            if (_mode is InteractionMode.Dragging or InteractionMode.Resizing)
+            {
+                _editor.Drag.Cancel();
+                _previewBounds.Clear();
+            }
             _mode = InteractionMode.None;
             _editor.ActiveTool = EditorTool.Select;
             _invalidate();
@@ -203,22 +212,13 @@ public sealed class CanvasInputHandler
         if (direction is not null && _editor.Selection.HasSelection)
         {
             e.Handled = true;
-            IReadOnlyCollection<string> nudgeIds = _editor.Selection.GetTransformableElementIds(_editor.Session.Document);
-            var changes = new Dictionary<string, (MicrometreRect, MicrometreRect)>();
-            foreach (string id in nudgeIds)
+            LabelDocument doc = _editor.Session.Document;
+            IReadOnlyCollection<string> nudgeIds = _editor.Selection.GetTransformableElementIds(doc);
+            if (nudgeIds.Count > 0)
             {
-                Document.Elements.DocumentElement? elem = _editor.Session.Document.Elements.FirstOrDefault(el => el.Id == id);
-                if (elem is null) continue;
-                MicrometreRect orig = elem.Bounds;
-                MicrometreRect moved = new(
-                    new(orig.X.Value + direction.Value.X.Value),
-                    new(orig.Y.Value + direction.Value.Y.Value),
-                    orig.Width, orig.Height);
-                changes[id] = (orig, moved);
-            }
-            if (changes.Count > 0)
-            {
-                _editor.Session.ExecuteCommand(new MoveElementsCommand(changes));
+                ElementTransform[] transforms = SelectionTransformService.PlanMove(
+                    doc, nudgeIds, direction.Value.X.Value, direction.Value.Y.Value);
+                _editor.Session.ExecuteCommand(SelectionTransformService.ToCommand(transforms));
             }
             _invalidate();
         }
@@ -235,72 +235,196 @@ public sealed class CanvasInputHandler
 
     public void Paint(SKPaintSurfaceEventArgs e, float renderScale)
     {
-        _painter.Paint(e.Surface.Canvas, e.Info.Width, e.Info.Height, renderScale, _editor, _hoverElementId, CreationPreview);
+        _painter.Paint(e.Surface.Canvas, e.Info.Width, e.Info.Height, renderScale, _editor, _hoverElementId, CreationPreview, PreviewBounds);
     }
 
-    private void HandleSelectMouseDown(MicrometrePoint docPoint, Micrometre tolerance, MouseButtonEventArgs e)
+    private void HandleSelectMouseDown(object sender, Point pos, MicrometrePoint docPoint, Micrometre tolerance, MouseButtonEventArgs e)
     {
+        if (e.ChangedButton != MouseButton.Left) { _invalidate(); return; }
+
+        ResizeHandle handle = HitTestHandle(pos);
+        if (handle != ResizeHandle.None && _editor.Selection.HasSelection)
+        {
+            StartResize(handle);
+            return;
+        }
+
         string? hitId = HitTester.HitTestTopmost(_editor.Session.Document, docPoint, tolerance);
 
         if (hitId is not null)
         {
-            if (e.ChangedButton == MouseButton.Left)
-            {
-                string? groupId = _editor.Session.Document.FindGroupIdForMember(hitId);
+            string? groupId = _editor.Session.Document.FindGroupIdForMember(hitId);
 
-                if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+            if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+            {
+                if (groupId is not null)
                 {
-                    if (groupId is not null)
+                    _editor.Selection.ToggleSelectElement(groupId);
+                }
+                else
+                {
+                    _editor.Selection.ToggleSelectElement(hitId);
+                }
+            }
+            else
+            {
+                if (groupId is not null)
+                {
+                    if (!_editor.Selection.Contains(groupId))
                     {
-                        if (_editor.Selection.Contains(groupId))
-                        {
-                            _editor.Selection.ToggleSelectElement(groupId);
-                        }
-                        else
-                        {
-                            _editor.Selection.ToggleSelectElement(groupId);
-                        }
-                    }
-                    else
-                    {
-                        _editor.Selection.ToggleSelectElement(hitId);
+                        _editor.Selection.SelectGroup(groupId);
                     }
                 }
                 else
                 {
-                    if (groupId is not null)
+                    if (!_editor.Selection.Contains(hitId))
                     {
-                        if (!_editor.Selection.Contains(groupId))
-                        {
-                            _editor.Selection.SelectGroup(groupId);
-                        }
-                    }
-                    else
-                    {
-                        if (!_editor.Selection.Contains(hitId))
-                        {
-                            _editor.Selection.SelectElement(hitId);
-                        }
+                        _editor.Selection.SelectElement(hitId);
                     }
                 }
+            }
 
-                IReadOnlyCollection<string> transformableIds = _editor.Selection.GetTransformableElementIds(_editor.Session.Document);
-                if (transformableIds.Count > 0 && !_editor.Selection.HasLockedMembers(_editor.Session.Document))
-                {
-                    _mode = InteractionMode.Dragging;
-                    _interactionStart = docPoint;
-                    _editor.Drag.Begin(transformableIds.ToList(), _editor.Session.Document);
-                }
+            LabelDocument doc = _editor.Session.Document;
+            IReadOnlyCollection<string> transformableIds = _editor.Selection.GetTransformableElementIds(doc);
+            if (transformableIds.Count > 0)
+            {
+                _mode = InteractionMode.Dragging;
+                _interactionStart = docPoint;
+                _transformIds = transformableIds.ToList();
+                _previewBounds.Clear();
+                _editor.Drag.Begin(transformableIds, doc);
             }
         }
         else
         {
-            if (e.ChangedButton == MouseButton.Left)
-            {
-                _editor.Selection.Clear();
-            }
+            _editor.Selection.Clear();
         }
         _invalidate();
+    }
+
+    private void StartResize(ResizeHandle handle)
+    {
+        LabelDocument doc = _editor.Session.Document;
+        IReadOnlyCollection<string> transformableIds = _editor.Selection.GetTransformableElementIds(doc);
+        if (transformableIds.Count == 0) return;
+
+        _mode = InteractionMode.Resizing;
+        _activeResizeHandle = handle;
+        _transformIds = transformableIds.ToList();
+        _resizeOriginalBounds = SelectionBounds.GetCombinedBounds(doc, transformableIds);
+        _previewBounds.Clear();
+        _editor.Drag.Begin(transformableIds, doc);
+    }
+
+    private void CommitTransform()
+    {
+        IEditorCommand? cmd = _editor.Drag.Commit(_editor.Session.Document, _previewBounds);
+        if (cmd is not null)
+        {
+            _editor.Session.ExecuteCommand(cmd);
+        }
+    }
+
+    private void HandleResizeMouseMove(MicrometrePoint docPoint)
+    {
+        if (_transformIds.Count == 0) return;
+
+        MicrometreRect orig = _resizeOriginalBounds;
+        int x = orig.X.Value, y = orig.Y.Value;
+        int w = orig.Width.Value, h = orig.Height.Value;
+
+        int px = docPoint.X.Value;
+        int py = docPoint.Y.Value;
+
+        switch (_activeResizeHandle)
+        {
+            case ResizeHandle.TopLeft:
+                x = Math.Min(px, orig.Right.Value - SelectionTransformService.MinElementWidthMicrometres);
+                y = Math.Min(py, orig.Bottom.Value - SelectionTransformService.MinElementHeightMicrometres);
+                w = orig.Right.Value - x;
+                h = orig.Bottom.Value - y;
+                break;
+            case ResizeHandle.Top:
+                y = Math.Min(py, orig.Bottom.Value - SelectionTransformService.MinElementHeightMicrometres);
+                h = orig.Bottom.Value - y;
+                break;
+            case ResizeHandle.TopRight:
+                w = Math.Max(px - orig.X.Value, SelectionTransformService.MinElementWidthMicrometres);
+                y = Math.Min(py, orig.Bottom.Value - SelectionTransformService.MinElementHeightMicrometres);
+                h = orig.Bottom.Value - y;
+                break;
+            case ResizeHandle.Right:
+                w = Math.Max(px - orig.X.Value, SelectionTransformService.MinElementWidthMicrometres);
+                break;
+            case ResizeHandle.BottomRight:
+                w = Math.Max(px - orig.X.Value, SelectionTransformService.MinElementWidthMicrometres);
+                h = Math.Max(py - orig.Y.Value, SelectionTransformService.MinElementHeightMicrometres);
+                break;
+            case ResizeHandle.Bottom:
+                h = Math.Max(py - orig.Y.Value, SelectionTransformService.MinElementHeightMicrometres);
+                break;
+            case ResizeHandle.BottomLeft:
+                x = Math.Min(px, orig.Right.Value - SelectionTransformService.MinElementWidthMicrometres);
+                w = orig.Right.Value - x;
+                h = Math.Max(py - orig.Y.Value, SelectionTransformService.MinElementHeightMicrometres);
+                break;
+            case ResizeHandle.Left:
+                x = Math.Min(px, orig.Right.Value - SelectionTransformService.MinElementWidthMicrometres);
+                w = orig.Right.Value - x;
+                break;
+        }
+
+        bool proportional = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
+        MicrometreRect newBounds = new(new(x), new(y), new(w), new(h));
+
+        LabelDocument doc = _editor.Session.Document;
+        ElementTransform[] transforms = SelectionTransformService.PlanResize(
+            doc, _transformIds, orig, newBounds, proportional);
+        foreach (ElementTransform transform in transforms)
+        {
+            _previewBounds[transform.ElementId] = transform.After.Bounds;
+        }
+    }
+
+    private ResizeHandle HitTestHandle(Point pos)
+    {
+        if (!_editor.Selection.HasSelection) return ResizeHandle.None;
+
+        LabelDocument doc = _editor.Session.Document;
+        IReadOnlyCollection<string> ids = _editor.Selection.GetSelectedElementIds(doc);
+        MicrometreRect bounds = SelectionBounds.GetCombinedBounds(doc, ids);
+        if (bounds.Width <= Micrometre.Zero && bounds.Height <= Micrometre.Zero) return ResizeHandle.None;
+
+        CanvasTransform view = _editor.ViewTransform;
+        double left = view.DocumentToCanvasX(bounds.X);
+        double top = view.DocumentToCanvasY(bounds.Y);
+        double right = left + view.DocumentToCanvasLength(bounds.Width);
+        double bottom = top + view.DocumentToCanvasLength(bounds.Height);
+        double midX = (left + right) / 2;
+        double midY = (top + bottom) / 2;
+
+        double tol = HandleHitToleranceDip + HandleSizeDip / 2;
+
+        bool nearLeft = Math.Abs(pos.X - left) <= tol;
+        bool nearRight = Math.Abs(pos.X - right) <= tol;
+        bool nearTop = Math.Abs(pos.Y - top) <= tol;
+        bool nearBottom = Math.Abs(pos.Y - bottom) <= tol;
+        bool nearMidX = Math.Abs(pos.X - midX) <= tol;
+        bool nearMidY = Math.Abs(pos.Y - midY) <= tol;
+
+        bool withinY = pos.Y >= top - tol && pos.Y <= bottom + tol;
+        bool withinX = pos.X >= left - tol && pos.X <= right + tol;
+
+        if (nearLeft && nearTop && withinX && withinY) return ResizeHandle.TopLeft;
+        if (nearRight && nearTop && withinX && withinY) return ResizeHandle.TopRight;
+        if (nearLeft && nearBottom && withinX && withinY) return ResizeHandle.BottomLeft;
+        if (nearRight && nearBottom && withinX && withinY) return ResizeHandle.BottomRight;
+        if (nearMidX && nearTop) return ResizeHandle.Top;
+        if (nearMidX && nearBottom) return ResizeHandle.Bottom;
+        if (nearMidY && nearLeft) return ResizeHandle.Left;
+        if (nearMidY && nearRight) return ResizeHandle.Right;
+
+        return ResizeHandle.None;
     }
 
     private void HandleCreateMouseDown(MicrometrePoint docPoint)
@@ -332,52 +456,6 @@ public sealed class CanvasInputHandler
         _editor.Session.ExecuteCommand(new AddElementCommand(element));
         _editor.Selection.SelectElement(id);
         _editor.ActiveTool = EditorTool.Select;
-    }
-
-    private void HandleResizeMouseMove(MicrometrePoint docPoint)
-    {
-        string? activeId = _editor.Selection.ActiveId;
-        if (activeId is null) return;
-
-        Document.Elements.DocumentElement? elem = _editor.Session.Document.Elements.FirstOrDefault(e => e.Id == activeId);
-        if (elem is null) return;
-
-        MicrometreRect orig = elem.Bounds;
-        int x = orig.X.Value, y = orig.Y.Value, w = orig.Width.Value, h = orig.Height.Value;
-
-        switch (_activeResizeHandle)
-        {
-            case ResizeHandle.TopLeft:
-                x = docPoint.X.Value; y = docPoint.Y.Value;
-                w = orig.Right.Value - docPoint.X.Value; h = orig.Bottom.Value - docPoint.Y.Value;
-                break;
-            case ResizeHandle.Top:
-                y = docPoint.Y.Value; h = orig.Bottom.Value - docPoint.Y.Value;
-                break;
-            case ResizeHandle.TopRight:
-                y = docPoint.Y.Value; w = docPoint.X.Value - orig.X.Value; h = orig.Bottom.Value - docPoint.Y.Value;
-                break;
-            case ResizeHandle.Right:
-                w = docPoint.X.Value - orig.X.Value;
-                break;
-            case ResizeHandle.BottomRight:
-                w = docPoint.X.Value - orig.X.Value; h = docPoint.Y.Value - orig.Y.Value;
-                break;
-            case ResizeHandle.Bottom:
-                h = docPoint.Y.Value - orig.Y.Value;
-                break;
-            case ResizeHandle.BottomLeft:
-                x = docPoint.X.Value; w = orig.Right.Value - docPoint.X.Value; h = docPoint.Y.Value - orig.Y.Value;
-                break;
-            case ResizeHandle.Left:
-                x = docPoint.X.Value; w = orig.Right.Value - docPoint.X.Value;
-                break;
-        }
-
-        w = Math.Max(100, w);
-        h = Math.Max(100, h);
-
-        _editor.Drag.UpdatePreview(activeId, new(new(x), new(y), new(w), new(h)));
     }
 
     private void UpdateHover(MicrometrePoint docPoint, Micrometre tolerance)

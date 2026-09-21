@@ -10,6 +10,7 @@ using LabelStudio.Editor;
 using LabelStudio.Editor.Commands;
 using LabelStudio.Editor.Clipboard;
 using LabelStudio.Editor.Selection;
+using LabelStudio.Editor.Transforms;
 using LabelStudio.Desktop.Canvas;
 using LabelStudio.Layout;
 using LabelStudio.Printing;
@@ -553,6 +554,27 @@ public partial class MainWindow : Window
         {
             AddInspectorRow("Selection", $"{selected.Count} elements", false);
             AddInspectorMetadataChecks(selected);
+            AddInspectorSeparator();
+
+            List<string> transformIds = SelectionBounds.ResolveTransformableElementIds(doc, _editor.Selection)
+                .Where(id => doc.IsEffectivelyVisible(id))
+                .ToList();
+            bool locked = SelectionBounds.ContainsLockedMember(doc, transformIds);
+            if (locked)
+            {
+                AddInspectorRow("Locked", "Yes - transform disabled", false);
+                return;
+            }
+
+            MicrometreRect combined = SelectionBounds.GetCombinedBounds(doc, transformIds);
+            AddInspectorField("X", combined.X.ToMillimetres(), "X", mm => CommitSelectionMoveTo(
+                transformIds, (int)Math.Round(mm * 1000, MidpointRounding.AwayFromZero), combined.Y.Value));
+            AddInspectorField("Y", combined.Y.ToMillimetres(), "Y", mm => CommitSelectionMoveTo(
+                transformIds, combined.X.Value, (int)Math.Round(mm * 1000, MidpointRounding.AwayFromZero)));
+            AddInspectorField("Width", combined.Width.ToMillimetres(), "Width", mm => CommitSelectionScaleTo(
+                transformIds, (int)Math.Round(mm * 1000, MidpointRounding.AwayFromZero), combined.Height.Value));
+            AddInspectorField("Height", combined.Height.ToMillimetres(), "Height", mm => CommitSelectionScaleTo(
+                transformIds, combined.Width.Value, (int)Math.Round(mm * 1000, MidpointRounding.AwayFromZero)));
             return;
         }
 
@@ -734,6 +756,27 @@ public partial class MainWindow : Window
         if (_editor.Session.Document.IsEffectivelyLocked(activeId)) return;
 
         _editor.Session.ExecuteCommand(new ResizeElementCommand(activeId, element.Bounds, newBounds));
+    }
+
+    private void CommitSelectionMoveTo(List<string> elementIds, int targetX, int targetY)
+    {
+        LabelDocument doc = _editor.Session.Document;
+        if (SelectionBounds.ContainsLockedMember(doc, elementIds)) return;
+
+        ElementTransform[] transforms = SelectionTransformService.PlanMoveTo(doc, elementIds, targetX, targetY);
+        _editor.Session.ExecuteCommand(SelectionTransformService.ToCommand(transforms));
+    }
+
+    private void CommitSelectionScaleTo(List<string> elementIds, int targetWidth, int targetHeight)
+    {
+        LabelDocument doc = _editor.Session.Document;
+        if (SelectionBounds.ContainsLockedMember(doc, elementIds)) return;
+
+        targetWidth = Math.Max(SelectionTransformService.MinElementWidthMicrometres, targetWidth);
+        targetHeight = Math.Max(SelectionTransformService.MinElementHeightMicrometres, targetHeight);
+
+        ElementTransform[] transforms = SelectionTransformService.PlanScaleToSize(doc, elementIds, targetWidth, targetHeight);
+        _editor.Session.ExecuteCommand(SelectionTransformService.ToCommand(transforms));
     }
 
     private void CommitGroupName(string groupId, string name)
