@@ -40,6 +40,11 @@ public sealed class ThermalTargetRenderer : ITargetRenderer
         int w = ToDot(bounds.Width, target.DpiX);
         int h = ToDot(bounds.Height, target.DpiY);
 
+        if (w <= 0 && h <= 0) return;
+
+        w = Math.Max(1, w);
+        h = Math.Max(1, h);
+
         switch (element.Content.ContentType)
         {
             case PreparedContentType.Rectangle:
@@ -85,6 +90,8 @@ public sealed class ThermalTargetRenderer : ITargetRenderer
     private static void DrawSimpleText(
         MonochromeRaster plane, string text, int x, int y, int w, int h, int fontDots)
     {
+        if (string.IsNullOrEmpty(text)) return;
+
         int charWidth = Math.Max(3, fontDots / 2);
         int charHeight = fontDots;
         int spacing = Math.Max(1, charWidth / 4);

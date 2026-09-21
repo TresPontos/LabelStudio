@@ -72,6 +72,7 @@ public partial class MainWindow : Window
         _editor.Session.DirtyChanged += (_, _) => { UpdateTitle(); UpdateCommandButtons(); };
         _editor.Selection.SelectionChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); UpdateLayersSelection(); };
         _editor.ViewTransform.Reset();
+        CenterView();
         UpdateInspector();
         UpdateLayers();
         UpdateTitle();
@@ -230,6 +231,7 @@ public partial class MainWindow : Window
                 _editor.Session.SetDocument(doc, ofd.FileName);
                 _editor.Selection.Clear();
                 _editor.ViewTransform.Reset();
+                CenterView();
                 UpdateInspector();
                 UpdateTitle();
                 InvalidateCanvas();
@@ -314,6 +316,29 @@ public partial class MainWindow : Window
 
     private void OnZoomFit(object sender, RoutedEventArgs e)
     {
+        CenterView();
+        InvalidateCanvas();
+    }
+
+    // View Rotation
+    private void OnRotateViewLeft(object sender, RoutedEventArgs e)
+    {
+        _editor.ViewTransform.ViewRotationDegrees -= 90;
+        UpdateViewRotationLabel();
+        CenterView();
+        InvalidateCanvas();
+    }
+
+    private void OnRotateViewRight(object sender, RoutedEventArgs e)
+    {
+        _editor.ViewTransform.ViewRotationDegrees += 90;
+        UpdateViewRotationLabel();
+        CenterView();
+        InvalidateCanvas();
+    }
+
+    private void CenterView()
+    {
         PhysicalSize dims = _editor.Session.Document.PageDimensions;
         double docW = dims.Width.Value;
         double docH = (dims.Height > Micrometre.Zero ? dims.Height : new Micrometre(200_000)).Value;
@@ -323,6 +348,7 @@ public partial class MainWindow : Window
         double availW = CanvasHost.ActualWidth - 80;
         double availH = CanvasHost.ActualHeight - 80;
         double zoom = Math.Min(availW / displayW, availH / displayH);
+        zoom = Math.Clamp(zoom, CanvasTransform.MinZoom, CanvasTransform.MaxZoom);
         _editor.ViewTransform.Zoom = zoom;
 
         double scaledW = displayW * zoom;
@@ -331,22 +357,6 @@ public partial class MainWindow : Window
         _editor.ViewTransform.OffsetY = (CanvasHost.ActualHeight - scaledH) / 2;
 
         UpdateCommandButtons();
-        InvalidateCanvas();
-    }
-
-    // View Rotation
-    private void OnRotateViewLeft(object sender, RoutedEventArgs e)
-    {
-        _editor.ViewTransform.ViewRotationDegrees -= 90;
-        UpdateViewRotationLabel();
-        InvalidateCanvas();
-    }
-
-    private void OnRotateViewRight(object sender, RoutedEventArgs e)
-    {
-        _editor.ViewTransform.ViewRotationDegrees += 90;
-        UpdateViewRotationLabel();
-        InvalidateCanvas();
     }
 
     private void UpdateViewRotationLabel()
@@ -509,11 +519,19 @@ public partial class MainWindow : Window
                 if (result.Success)
                     StatusLabel.Text = $"Print job sent to {queueName}";
                 else
-                    MessageBox.Show(result.Error ?? "Unknown error", "Print Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show(
+                        result.Error ?? "Unknown error",
+                        "Print Failed",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Print Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(
+                    $"Failed to send print job to '{queueName}'.\n\nEnsure the printer is connected, powered on, and the queue name matches exactly.\n\nError: {ex.Message}",
+                    "Print Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
     }
@@ -616,19 +634,16 @@ public partial class MainWindow : Window
         double canvasW = view.DocumentToCanvasLength(bounds.Width);
         double canvasH = view.DocumentToCanvasLength(bounds.Height);
 
-        float renderScale = (float)(CanvasElement.ActualWidth > 0
-            ? CanvasElement.ActualWidth / CanvasElement.ActualWidth
-            : 1.0);
-
         TextEditOverlay.Text = text.Text;
         TextEditOverlay.Visibility = Visibility.Visible;
-        TextEditOverlay.Width = Math.Max(40, canvasW);
-        TextEditOverlay.MinHeight = Math.Max(20, canvasH);
-        TextEditOverlay.FontSize = Math.Max(8, canvasH * 0.7);
+        TextEditOverlay.Width = Math.Max(60, canvasW);
+        TextEditOverlay.Height = Math.Max(24, canvasH);
+        TextEditOverlay.FontSize = Math.Max(10, canvasH * 0.6);
+        TextEditOverlay.IsHitTestVisible = true;
+        OverlayCanvas.IsHitTestVisible = true;
 
         System.Windows.Controls.Canvas.SetLeft(TextEditOverlay, canvasX);
         System.Windows.Controls.Canvas.SetTop(TextEditOverlay, canvasY);
-        Panel.SetZIndex(TextEditOverlay, 100);
 
         TextEditOverlay.Focus();
         TextEditOverlay.SelectAll();
@@ -669,6 +684,8 @@ public partial class MainWindow : Window
         _textEditElementId = null;
         _textEditOriginalText = string.Empty;
         TextEditOverlay.Visibility = Visibility.Collapsed;
+        TextEditOverlay.IsHitTestVisible = false;
+        OverlayCanvas.IsHitTestVisible = false;
     }
 
     private void OnTextEditLostFocus(object sender, RoutedEventArgs e)
@@ -683,14 +700,10 @@ public partial class MainWindow : Window
     {
         if (!IsTextEditActive) return;
 
-        if (e.Key == Key.Enter && !TextEditOverlay.AcceptsReturn)
+        if (e.Key == Key.Enter)
         {
             CommitTextEdit();
             e.Handled = true;
-        }
-        else if (e.Key == Key.Enter && Keyboard.IsKeyDown(Key.LeftShift))
-        {
-            e.Handled = false;
         }
         else if (e.Key == Key.Escape)
         {

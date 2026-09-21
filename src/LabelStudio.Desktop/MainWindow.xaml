@@ -146,16 +146,18 @@
                             MouseMove="OnCanvasMouseMove"
                             MouseUp="OnCanvasMouseUp"
                             MouseWheel="OnCanvasMouseWheel"/>
-            <TextBox x:Name="TextEditOverlay"
-                     Visibility="Collapsed"
-                     Background="#FFFFFFFF"
-                     Foreground="#FF000000"
-                     BorderBrush="#FF007ACC"
-                     BorderThickness="2"
-                     Padding="2,1"
-                     AcceptsReturn="True"
-                     LostFocus="OnTextEditLostFocus"
-                     KeyDown="OnTextEditKeyDown"/>
+            <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False">
+                <TextBox x:Name="TextEditOverlay"
+                         Visibility="Collapsed"
+                         Background="#FFFFFFFF"
+                         Foreground="#FF000000"
+                         BorderBrush="#FF007ACC"
+                         BorderThickness="2"
+                         Padding="2,1"
+                         AcceptsReturn="False"
+                         LostFocus="OnTextEditLostFocus"
+                         KeyDown="OnTextEditKeyDown"/>
+            </Canvas>
         </Grid>
     </DockPanel>
 </Window>
