@@ -96,6 +96,7 @@ public partial class MainWindow : Window
     // Canvas painting
     private void OnCanvasPaint(object sender, SKPaintSurfaceEventArgs e)
     {
+        if (_input is null) return;
         float scale = (float)(CanvasElement.ActualWidth > 0 ? e.Info.Width / CanvasElement.ActualWidth : 1.0);
         _input.Paint(e, scale);
     }
