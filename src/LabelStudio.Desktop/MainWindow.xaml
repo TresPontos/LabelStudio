@@ -101,13 +101,34 @@
             </StackPanel>
         </Border>
 
-        <!-- Inspector -->
-        <Border DockPanel.Dock="Right" Background="#FF252526" Width="220" Padding="8">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel x:Name="InspectorPanel">
-                    <TextBlock Text="No selection" Foreground="#FF777777" FontSize="12" HorizontalAlignment="Center" Margin="0,20,0,0"/>
-                </StackPanel>
-            </ScrollViewer>
+        <!-- Inspector and Layers -->
+        <Border DockPanel.Dock="Right" Background="#FF252526" Width="250" Padding="4">
+            <TabControl Background="#FF252526" Foreground="#FFF0F0F0" BorderBrush="#FF555555">
+                <TabItem Header="Inspector">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4">
+                        <StackPanel x:Name="InspectorPanel">
+                            <TextBlock Text="No selection" Foreground="#FF777777" FontSize="12" HorizontalAlignment="Center" Margin="0,20,0,0"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                <TabItem Header="Layers">
+                    <DockPanel Background="#FF252526" Margin="2,4,2,2">
+                        <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,4,0,0">
+                            <Button Style="{StaticResource CmdBtn}" Content="Front" Click="OnBringToFront" ToolTip="Bring to Front"/>
+                            <Button Style="{StaticResource CmdBtn}" Content="Up" Click="OnBringForward" ToolTip="Bring Forward"/>
+                            <Button Style="{StaticResource CmdBtn}" Content="Down" Click="OnSendBackward" ToolTip="Send Backward"/>
+                            <Button Style="{StaticResource CmdBtn}" Content="Back" Click="OnSendToBack" ToolTip="Send to Back"/>
+                        </WrapPanel>
+                        <ListBox x:Name="LayersList"
+                                 SelectionMode="Extended"
+                                 SelectionChanged="OnLayersSelectionChanged"
+                                 Background="#FF252526"
+                                 Foreground="#FFF0F0F0"
+                                 BorderBrush="#FF555555"
+                                 HorizontalContentAlignment="Stretch"/>
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
         </Border>
 
         <!-- Canvas -->

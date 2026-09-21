@@ -11,15 +11,7 @@ public static class HitTester
         MicrometrePoint point,
         Micrometre tolerance)
     {
-        for (int i = document.Elements.Count - 1; i >= 0; i--)
-        {
-            DocumentElement element = document.Elements[i];
-            if (HitTestElement(element, point, tolerance))
-            {
-                return element.Id;
-            }
-        }
-        return null;
+        return HitTestAll(document, point, tolerance).FirstOrDefault();
     }
 
     public static string? HitTestTopmost(
@@ -28,16 +20,40 @@ public static class HitTester
         Micrometre tolerance,
         HashSet<string> excludeIds)
     {
+        return HitTestAll(document, point, tolerance, includeLocked: false, excludeIds).FirstOrDefault();
+    }
+
+    public static string? HitTestTopmost(
+        LabelDocument document,
+        MicrometrePoint point,
+        Micrometre tolerance,
+        bool includeLocked) =>
+        HitTestAll(document, point, tolerance, includeLocked).FirstOrDefault();
+
+    public static IReadOnlyList<string> HitTestAll(
+        LabelDocument document,
+        MicrometrePoint point,
+        Micrometre tolerance,
+        bool includeLocked = false,
+        IReadOnlySet<string>? excludeIds = null)
+    {
+        List<string> hits = [];
         for (int i = document.Elements.Count - 1; i >= 0; i--)
         {
             DocumentElement element = document.Elements[i];
-            if (excludeIds.Contains(element.Id)) continue;
+            if (excludeIds?.Contains(element.Id) == true ||
+                !document.IsEffectivelyVisible(element) ||
+                (!includeLocked && document.IsEffectivelyLocked(element)))
+            {
+                continue;
+            }
+
             if (HitTestElement(element, point, tolerance))
             {
-                return element.Id;
+                hits.Add(element.Id);
             }
         }
-        return null;
+        return hits.AsReadOnly();
     }
 
     public static bool HitTestElement(DocumentElement element, MicrometrePoint point, Micrometre tolerance)

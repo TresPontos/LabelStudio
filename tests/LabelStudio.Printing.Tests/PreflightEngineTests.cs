@@ -121,4 +121,21 @@ public class PreflightEngineTests
         Assert.False(result.CanPrint);
         Assert.Contains(result.Errors, e => e.Code == "ELEMENT_OUTSIDE_LABEL");
     }
+
+    [Fact]
+    public void HiddenRedElement_DoesNotFailInkPreflight()
+    {
+        RectangleElement hiddenRed = RectangleElement.Create(
+            "hidden-red",
+            new(new(1000), new(1000), new(5000), new(5000)),
+            InkChannel.Red) with
+        { IsVisible = false };
+        var (doc, scene) = CreateDieCut(hiddenRed);
+        MediaProfile media = MediaCatalog.CreateBuiltIn().Get("brother.dk-11204");
+
+        PreflightResult result = new PreflightEngine().Check(doc, scene, media, PrintSettings.Default);
+
+        Assert.True(result.CanPrint);
+        Assert.DoesNotContain(result.Errors, issue => issue.ElementId == hiddenRed.Id);
+    }
 }

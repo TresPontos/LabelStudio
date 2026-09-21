@@ -86,6 +86,10 @@ public sealed class PreflightEngine
 
         foreach (Document.Elements.DocumentElement element in document.Elements)
         {
+            if (!document.IsEffectivelyVisible(element))
+            {
+                continue;
+            }
             if (element.Ink == InkChannel.Red && !media.SupportsRed)
             {
                 errors.Add(new(PreflightSeverity.Error, "INK_UNSUPPORTED",

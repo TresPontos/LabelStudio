@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private EditorState _editor = null!;
     private CanvasInputHandler _input = null!;
     private readonly SkiaCanvasPainter _painter = new();
+    private bool _updatingLayers;
 
     public MainWindow()
     {
@@ -59,11 +60,12 @@ public partial class MainWindow : Window
 
         _editor = new EditorState(doc);
         _input = new CanvasInputHandler(_editor, _painter, InvalidateCanvas);
-        _editor.Session.DocumentChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); UpdateTitle(); };
+        _editor.Session.DocumentChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); UpdateLayers(); UpdateTitle(); };
         _editor.Session.DirtyChanged += (_, _) => { UpdateTitle(); UpdateCommandButtons(); };
-        _editor.Selection.SelectionChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); };
+        _editor.Selection.SelectionChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); UpdateLayersSelection(); };
         _editor.ViewTransform.Reset();
         UpdateInspector();
+        UpdateLayers();
         UpdateTitle();
         InvalidateCanvas();
     }
@@ -490,11 +492,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_editor.Selection.IsMultiSelect)
+        {
+            IReadOnlyList<DocumentElement> selected = _editor.Session.Document.Elements
+                .Where(element => _editor.Selection.Contains(element.Id))
+                .ToList();
+            AddInspectorRow("Selection", $"{selected.Count} elements", false);
+            AddInspectorMetadataChecks(selected);
+            return;
+        }
+
         string? activeId = _editor.Selection.ActiveId;
         DocumentElement? element = _editor.Session.Document.Elements.FirstOrDefault(e => e.Id == activeId);
         if (element is null) return;
 
         AddInspectorRow("Type", element.ElementType, false);
+        AddInspectorTextField("Name", element.Name ?? string.Empty, value =>
+            CommitMetadata([element.Id], metadata => metadata with { Name = string.IsNullOrWhiteSpace(value) ? null : value.Trim() }));
+        AddInspectorMetadataChecks([element]);
         AddInspectorSeparator();
 
         AddInspectorField("X", element.Bounds.X.ToMillimetres(), "X", mm => CommitInspectorBounds(
@@ -590,6 +605,61 @@ public partial class MainWindow : Window
         InspectorPanel.Children.Add(panel);
     }
 
+    private void AddInspectorTextField(string label, string value, Action<string> onCommit)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
+        panel.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("InspectorLabel"), Width = 60 });
+        var textBox = new TextBox { Style = (Style)FindResource("InspectorField"), Text = value };
+        string originalValue = value;
+        textBox.LostFocus += (_, _) =>
+        {
+            if (!string.Equals(textBox.Text, originalValue, StringComparison.Ordinal))
+            {
+                onCommit(textBox.Text);
+            }
+        };
+        textBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Keyboard.ClearFocus();
+            }
+            else if (e.Key == Key.Escape)
+            {
+                textBox.Text = originalValue;
+                Keyboard.ClearFocus();
+            }
+        };
+        panel.Children.Add(textBox);
+        InspectorPanel.Children.Add(panel);
+    }
+
+    private void AddInspectorMetadataChecks(IReadOnlyList<DocumentElement> elements)
+    {
+        bool? visible = CommonValue(elements.Select(element => element.IsVisible));
+        bool? locked = CommonValue(elements.Select(element => element.IsLocked));
+        AddInspectorCheck("Visible", visible, value =>
+            CommitMetadata(elements.Select(element => element.Id), metadata => metadata with { IsVisible = value }));
+        AddInspectorCheck("Locked", locked, value =>
+            CommitMetadata(elements.Select(element => element.Id), metadata => metadata with { IsLocked = value }));
+    }
+
+    private void AddInspectorCheck(string label, bool? value, Action<bool> onCommit)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
+        panel.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("InspectorLabel"), Width = 60 });
+        var checkBox = new CheckBox { IsChecked = value, IsThreeState = value is null, VerticalAlignment = VerticalAlignment.Center };
+        checkBox.Click += (_, _) => onCommit(checkBox.IsChecked ?? true);
+        panel.Children.Add(checkBox);
+        InspectorPanel.Children.Add(panel);
+    }
+
+    private static bool? CommonValue(IEnumerable<bool> values)
+    {
+        bool[] all = values.ToArray();
+        return all.All(value => value) ? true : all.All(value => !value) ? false : null;
+    }
+
     private void AddInspectorSeparator()
     {
         InspectorPanel.Children.Add(new Separator
@@ -609,4 +679,140 @@ public partial class MainWindow : Window
 
         _editor.Session.ExecuteCommand(new ResizeElementCommand(activeId, element.Bounds, newBounds));
     }
+
+    private void CommitMetadata(IEnumerable<string> elementIds, Func<ElementMetadata, ElementMetadata> update)
+    {
+        HashSet<string> ids = elementIds.ToHashSet(StringComparer.Ordinal);
+        ElementMetadataChange[] changes = _editor.Session.Document.Elements
+            .Where(element => ids.Contains(element.Id))
+            .Select(element =>
+            {
+                ElementMetadata before = ElementMetadata.From(element);
+                return new ElementMetadataChange(element.Id, before, update(before));
+            })
+            .Where(change => change.Before != change.After)
+            .ToArray();
+        if (changes.Length > 0)
+        {
+            _editor.Session.ExecuteCommand(new ChangeElementMetadataCommand(changes));
+        }
+    }
+
+    // Layers
+    private void UpdateLayers()
+    {
+        _updatingLayers = true;
+        LayersList.Items.Clear();
+
+        Dictionary<string, int> typeCounts = new(StringComparer.Ordinal);
+        Dictionary<string, string> fallbackNames = new(StringComparer.Ordinal);
+        foreach (DocumentElement element in _editor.Session.Document.Elements)
+        {
+            string typeName = GetElementTypeName(element);
+            typeCounts[typeName] = typeCounts.GetValueOrDefault(typeName) + 1;
+            fallbackNames[element.Id] = $"{typeName} {typeCounts[typeName]}";
+        }
+
+        foreach (DocumentElement element in _editor.Session.Document.Elements.Reverse())
+        {
+            var row = new Grid { Margin = new Thickness(2), Tag = element.Id };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var visible = new CheckBox
+            {
+                Content = "V",
+                IsChecked = element.IsVisible,
+                ToolTip = "Visible",
+                Margin = new Thickness(2, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            visible.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsVisible = visible.IsChecked == true });
+            Grid.SetColumn(visible, 0);
+            row.Children.Add(visible);
+
+            var locked = new CheckBox
+            {
+                Content = "L",
+                IsChecked = element.IsLocked,
+                ToolTip = "Locked",
+                Margin = new Thickness(0, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            locked.Click += (_, _) => CommitMetadata([element.Id], metadata => metadata with { IsLocked = locked.IsChecked == true });
+            Grid.SetColumn(locked, 1);
+            row.Children.Add(locked);
+
+            var labels = new StackPanel();
+            labels.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(element.Name) ? fallbackNames[element.Id] : element.Name,
+                Foreground = System.Windows.Media.Brushes.White,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            labels.Children.Add(new TextBlock
+            {
+                Text = element.ElementType,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                FontSize = 10,
+            });
+            Grid.SetColumn(labels, 2);
+            row.Children.Add(labels);
+
+            LayersList.Items.Add(new ListBoxItem { Content = row, Tag = element.Id });
+        }
+
+        UpdateLayersSelectionCore();
+        _updatingLayers = false;
+    }
+
+    private void UpdateLayersSelection()
+    {
+        _updatingLayers = true;
+        UpdateLayersSelectionCore();
+        _updatingLayers = false;
+    }
+
+    private void UpdateLayersSelectionCore()
+    {
+        foreach (ListBoxItem item in LayersList.Items)
+        {
+            item.IsSelected = item.Tag is string id && _editor.Selection.Contains(id);
+        }
+    }
+
+    private void OnLayersSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingLayers) return;
+        _editor.Selection.SetSelection(LayersList.SelectedItems.Cast<ListBoxItem>()
+            .Select(item => (string)item.Tag));
+    }
+
+    private void OnBringForward(object sender, RoutedEventArgs e) => ExecuteZOrder(
+        (ids, document) => new BringForwardCommand(ids, document));
+
+    private void OnSendBackward(object sender, RoutedEventArgs e) => ExecuteZOrder(
+        (ids, document) => new SendBackwardCommand(ids, document));
+
+    private void OnBringToFront(object sender, RoutedEventArgs e) => ExecuteZOrder(
+        (ids, document) => new BringToFrontCommand(ids, document));
+
+    private void OnSendToBack(object sender, RoutedEventArgs e) => ExecuteZOrder(
+        (ids, document) => new SendToBackCommand(ids, document));
+
+    private void ExecuteZOrder(Func<IEnumerable<string>, LabelDocument, IEditorCommand> createCommand)
+    {
+        if (!_editor.Selection.HasSelection) return;
+        _editor.Session.ExecuteCommand(createCommand(_editor.Selection.SelectedIds, _editor.Session.Document));
+    }
+
+    private static string GetElementTypeName(DocumentElement element) => element switch
+    {
+        RectangleElement => "Rectangle",
+        LineElement => "Line",
+        TextElement => "Text",
+        ImageElement => "Image",
+        _ => "Element",
+    };
 }

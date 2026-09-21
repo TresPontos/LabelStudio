@@ -112,4 +112,23 @@ public class LayoutEngineTests
         PreparedScene scene = new LayoutEngine().Prepare(doc);
         Assert.Empty(scene.Elements);
     }
+
+    [Fact]
+    public void Prepare_OmitsElementAndGroupHiddenElements()
+    {
+        RectangleElement shown = RectangleElement.Create("shown", MicrometreRect.Zero);
+        RectangleElement elementHidden = RectangleElement.Create("element-hidden", MicrometreRect.Zero) with { IsVisible = false };
+        RectangleElement groupHidden = RectangleElement.Create("group-hidden", MicrometreRect.Zero);
+        LabelDocument document = CreateDoc(shown, elementHidden, groupHidden) with
+        {
+            DesignMetadata = new DocumentDesignMetadata(
+                [new ElementGroup("group", null, [groupHidden.Id], isVisible: false)],
+                [],
+                DocumentGridGeometry.Default),
+        };
+
+        PreparedScene scene = new LayoutEngine().Prepare(document);
+
+        Assert.Equal("shown", Assert.Single(scene.Elements).SourceElementId);
+    }
 }

@@ -92,6 +92,7 @@ public sealed class SkiaCanvasPainter
     {
         foreach (DocumentElement element in doc.Elements)
         {
+            if (!doc.IsEffectivelyVisible(element)) continue;
             bool isSelected = selectedIds.Contains(element.Id);
             DrawElement(canvas, element, view, isSelected);
         }
@@ -172,7 +173,7 @@ public sealed class SkiaCanvasPainter
         foreach (string id in selection.SelectedIds)
         {
             DocumentElement? element = doc.Elements.FirstOrDefault(e => e.Id == id);
-            if (element is null) continue;
+            if (element is null || !doc.IsEffectivelyVisible(element)) continue;
 
             MicrometreRect bounds = element.Bounds;
             float x = (float)view.DocumentToCanvasX(bounds.X);
@@ -213,7 +214,7 @@ public sealed class SkiaCanvasPainter
         if (hoverId is null) return;
 
         DocumentElement? element = doc.Elements.FirstOrDefault(e => e.Id == hoverId);
-        if (element is null) return;
+        if (element is null || !doc.IsEffectivelyVisible(element)) return;
 
         MicrometreRect bounds = element.Bounds;
         float x = (float)view.DocumentToCanvasX(bounds.X);

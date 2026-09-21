@@ -14,6 +14,10 @@ public sealed class LayoutEngine
         List<PreparedElement> prepared = [];
         foreach (DocumentElement element in document.Elements)
         {
+            if (!document.IsEffectivelyVisible(element))
+            {
+                continue;
+            }
             prepared.Add(PrepareElement(element));
         }
 

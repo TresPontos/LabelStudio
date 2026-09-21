@@ -211,4 +211,66 @@ public class CommandTests
         Assert.Equal(4400, result.Bounds.Width.Value);
         Assert.Equal(400, result.Bounds.Height.Value);
     }
+
+    [Fact]
+    public void ChangeElementMetadata_UsesExactTypedBeforeAndAfterRecords()
+    {
+        RectangleElement beforeElement = RectangleElement.Create("r1", MicrometreRect.Zero) with
+        {
+            Name = "Before",
+            IsVisible = true,
+            IsLocked = false,
+        };
+        ElementMetadata before = ElementMetadata.From(beforeElement);
+        ElementMetadata after = new("After", false, true);
+        ChangeElementMetadataCommand command = new(new ElementMetadataChange("r1", before, after));
+
+        DocumentElement changed = Assert.Single(command.Execute(CreateDoc(beforeElement)).Elements);
+        Assert.Equal("After", changed.Name);
+        Assert.False(changed.IsVisible);
+        Assert.True(changed.IsLocked);
+
+        DocumentElement restored = Assert.Single(command.Undo(CreateDoc(changed)).Elements);
+        Assert.Equal(before, ElementMetadata.From(restored));
+        Assert.Equal(after, ElementMetadata.From(Assert.Single(command.Execute(CreateDoc(restored)).Elements)));
+    }
+
+    [Theory]
+    [InlineData("forward", "a,c,b,e,d")]
+    [InlineData("backward", "b,a,d,c,e")]
+    [InlineData("front", "a,c,e,b,d")]
+    [InlineData("back", "b,d,a,c,e")]
+    public void ZOrderCommands_PreserveMultiSelectionOrderAndUndoExactly(string operation, string expected)
+    {
+        RectangleElement[] elements = [.. new[] { "a", "b", "c", "d", "e" }
+            .Select(id => RectangleElement.Create(id, MicrometreRect.Zero))];
+        LabelDocument document = CreateDoc(elements);
+        IEditorCommand command = operation switch
+        {
+            "forward" => new BringForwardCommand(["b", "d"], document),
+            "backward" => new SendBackwardCommand(["b", "d"], document),
+            "front" => new BringToFrontCommand(["b", "d"], document),
+            "back" => new SendToBackCommand(["b", "d"], document),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation)),
+        };
+
+        LabelDocument reordered = command.Execute(document);
+
+        Assert.Equal(expected.Split(','), reordered.Elements.Select(element => element.Id));
+        LabelDocument restored = command.Undo(reordered);
+        Assert.Equal(elements, restored.Elements);
+        Assert.Equal(reordered.Elements, command.Execute(restored).Elements);
+    }
+
+    [Fact]
+    public void ZOrderCommand_AtBoundaryIsDeterministicNoOp()
+    {
+        LabelDocument document = CreateDoc(
+            RectangleElement.Create("a", MicrometreRect.Zero),
+            RectangleElement.Create("b", MicrometreRect.Zero));
+        BringToFrontCommand command = new(["b"], document);
+
+        Assert.Same(document, command.Execute(document));
+        Assert.Same(document, command.Undo(document));
+    }
 }

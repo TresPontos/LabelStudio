@@ -86,4 +86,41 @@ public class HitTesterTests
         string? hit = HitTester.HitTestTopmost(doc, new(new(5000), new(5000)), new(0), new HashSet<string> { "r2" });
         Assert.Equal("r1", hit);
     }
+
+    [Fact]
+    public void EffectiveState_CombinesElementAndGroupMetadata()
+    {
+        RectangleElement visible = RectangleElement.Create("visible", MicrometreRect.Zero);
+        RectangleElement hidden = RectangleElement.Create("hidden", MicrometreRect.Zero) with { IsVisible = false };
+        RectangleElement locked = RectangleElement.Create("locked", MicrometreRect.Zero) with { IsLocked = true };
+        DocumentDesignMetadata metadata = new(
+            [
+                new ElementGroup("hidden-group", null, ["visible"], isVisible: false),
+                new ElementGroup("locked-group", null, ["visible"], isLocked: true),
+            ],
+            [],
+            DocumentGridGeometry.Default);
+        LabelDocument document = CreateDoc(visible, hidden, locked) with { DesignMetadata = metadata };
+
+        Assert.False(document.IsEffectivelyVisible(visible));
+        Assert.False(document.IsEffectivelyVisible(hidden));
+        Assert.True(document.IsEffectivelyLocked(visible));
+        Assert.True(document.IsEffectivelyLocked(locked));
+    }
+
+    [Fact]
+    public void HitTestAll_ReturnsTopmostFirstAndFiltersHiddenAndLocked()
+    {
+        MicrometreRect bounds = new(new(0), new(0), new(10_000), new(10_000));
+        RectangleElement bottom = RectangleElement.Create("bottom", bounds);
+        RectangleElement locked = RectangleElement.Create("locked", bounds) with { IsLocked = true };
+        RectangleElement hidden = RectangleElement.Create("hidden", bounds) with { IsVisible = false };
+        RectangleElement top = RectangleElement.Create("top", bounds);
+        LabelDocument document = CreateDoc(bottom, locked, hidden, top);
+        MicrometrePoint point = new(new(5_000), new(5_000));
+
+        Assert.Equal(["top", "bottom"], HitTester.HitTestAll(document, point, Micrometre.Zero));
+        Assert.Equal(["top", "locked", "bottom"],
+            HitTester.HitTestAll(document, point, Micrometre.Zero, includeLocked: true));
+    }
 }
