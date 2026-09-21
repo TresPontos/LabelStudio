@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 using LabelStudio.Document;
 using LabelStudio.Document.Elements;
 using LabelStudio.Document.Ink;
@@ -24,7 +25,13 @@ public class DocumentPackageTests
             dims,
             new MicrometreRect(new(1500), new(0), new(58900), new(0)));
         RectangleElement rect = RectangleElement.Create("r1",
-            new(new(1000), new(1000), new(10000), new(5000)));
+            new(new(1000), new(1000), new(10000), new(5000))) with
+        {
+            Name = "Border",
+            IsVisible = false,
+            IsLocked = true,
+            RotationMillidegrees = 45000,
+        };
         LineElement line = new("l1",
             new(new(1000), new(7000)),
             new(new(11000), new(7000)),
@@ -34,9 +41,15 @@ public class DocumentPackageTests
             InkChannel.Black, "Hello", 24, null);
         ImageElement img = new("i1",
             new(new(25000), new(1000), new(10000), new(10000)),
-            InkChannel.Black, "asset-001");
+            InkChannel.Black, "asset-001")
+        { LockAspectRatio = false };
 
-        return LabelDocument.Create(dims, "brother.dk-22251", snap, [rect, line, text, img]);
+        DocumentDesignMetadata design = new(
+            [new ElementGroup("group-1", "Main", ["r1", "t1"], false, true)],
+            [new DocumentGuide("guide-1", DocumentGuideOrientation.Vertical, new(12500), "Center")],
+            new DocumentGridGeometry(new(2000), new(3000), new(new(100), new(200)), 5));
+        return LabelDocument.Create(dims, "brother.dk-22251", snap, [rect, line, text, img],
+            designMetadata: design);
     }
 
     [Fact]
@@ -62,6 +75,10 @@ public class DocumentPackageTests
         Assert.Equal(origRect.Ink, loadRect.Ink);
         Assert.Equal(origRect.Fill, loadRect.Fill);
         Assert.Equal(origRect.StrokeWidth, loadRect.StrokeWidth);
+        Assert.Equal(origRect.Name, loadRect.Name);
+        Assert.Equal(origRect.IsVisible, loadRect.IsVisible);
+        Assert.Equal(origRect.IsLocked, loadRect.IsLocked);
+        Assert.Equal(origRect.RotationMillidegrees, loadRect.RotationMillidegrees);
 
         LineElement origLine = (LineElement)original.Elements[1];
         LineElement loadLine = (LineElement)loaded.Elements[1];
@@ -77,6 +94,16 @@ public class DocumentPackageTests
         ImageElement origImg = (ImageElement)original.Elements[3];
         ImageElement loadImg = (ImageElement)loaded.Elements[3];
         Assert.Equal(origImg.AssetId, loadImg.AssetId);
+        Assert.Equal(origImg.LockAspectRatio, loadImg.LockAspectRatio);
+
+        Assert.Equal("group-1", loaded.DesignMetadata.Groups[0].Id);
+        Assert.Equal(["r1", "t1"], loaded.DesignMetadata.Groups[0].MemberIds);
+        Assert.False(loaded.DesignMetadata.Groups[0].IsVisible);
+        Assert.True(loaded.DesignMetadata.Groups[0].IsLocked);
+        Assert.Equal(DocumentGuideOrientation.Vertical, loaded.DesignMetadata.Guides[0].Orientation);
+        Assert.Equal(new Micrometre(12500), loaded.DesignMetadata.Guides[0].Position);
+        Assert.Equal(new Micrometre(2000), loaded.DesignMetadata.Grid.XSpacing);
+        Assert.Equal(new MicrometrePoint(new(100), new(200)), loaded.DesignMetadata.Grid.Origin);
     }
 
     [Fact]
@@ -148,5 +175,115 @@ public class DocumentPackageTests
         }
 
         Assert.Throws<InvalidDataException>(() => DocumentPackage.Load(path));
+    }
+
+    [Fact]
+    public void Load_V1Package_AutomaticallyMigratesToV2()
+    {
+        string path = GetTempPath();
+        string json = """
+            {
+              "formatVersion": 1,
+              "id": "00000000-0000-0000-0000-000000000001",
+              "pageDimensions": { "widthMicrometres": 62000, "heightMicrometres": 0 },
+              "mediaProfileId": "test",
+              "mediaGeometry": {
+                "profileId": "test",
+                "physicalDimensions": { "widthMicrometres": 62000, "heightMicrometres": 0 },
+                "printableArea": { "x": 0, "y": 0, "width": 62000, "height": 0 }
+              },
+              "elements": [
+                { "id": "i1", "type": "image", "bounds": { "x": 0, "y": 0, "width": 1000, "height": 1000 }, "ink": "black", "assetId": "image.bin" }
+              ]
+            }
+            """;
+        CreatePackage(path, json);
+
+        LabelDocument loaded = DocumentPackage.Load(path);
+
+        Assert.Equal(2, loaded.FormatVersion);
+        Assert.Empty(loaded.DesignMetadata.Groups);
+        Assert.Equal(DocumentGridGeometry.Default, loaded.DesignMetadata.Grid);
+        Assert.True(loaded.Elements[0].IsVisible);
+        Assert.True(((ImageElement)loaded.Elements[0]).LockAspectRatio);
+    }
+
+    [Fact]
+    public void Load_FutureVersion_Throws()
+    {
+        string path = GetTempPath();
+        CreatePackage(path, """{"formatVersion":99}""");
+
+        Assert.Throws<UnsupportedDocumentVersionException>(() => DocumentPackage.Load(path));
+    }
+
+    [Fact]
+    public void SaveLoadContent_PreservesAssetsAndPreviewExactly()
+    {
+        string path = GetTempPath();
+        string secondPath = GetTempPath();
+        byte[] asset = [0, 1, 2, 127, 128, 255];
+        byte[] preview = [137, 80, 78, 71, 0, 255];
+        DocumentPackageContent content = new(
+            CreateSampleDocument(),
+            new Dictionary<string, byte[]> { ["asset-001"] = asset },
+            preview);
+
+        DocumentPackage.SaveContent(content, path);
+        DocumentPackageContent loaded = DocumentPackage.LoadContent(path);
+        DocumentPackage.SaveContent(loaded, secondPath);
+        DocumentPackageContent reloaded = DocumentPackage.LoadContent(secondPath);
+
+        Assert.Equal(asset, loaded.Assets["asset-001"]);
+        Assert.Equal(preview, loaded.PreviewPng);
+        Assert.Equal(asset, reloaded.Assets["asset-001"]);
+        Assert.Equal(preview, reloaded.PreviewPng);
+    }
+
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData("folder/file")]
+    [InlineData("folder\\file")]
+    [InlineData("preview.png")]
+    [InlineData("CON")]
+    public void SaveContent_InvalidAssetId_Throws(string assetId)
+    {
+        DocumentPackageContent content = new(
+            CreateSampleDocument(),
+            new Dictionary<string, byte[]> { [assetId] = [1] },
+            null);
+
+        Assert.Throws<ArgumentException>(() => DocumentPackage.SaveContent(content, GetTempPath()));
+    }
+
+    [Fact]
+    public void SaveContent_OversizedAsset_Throws()
+    {
+        DocumentPackageContent content = new(
+            CreateSampleDocument(),
+            new Dictionary<string, byte[]> { ["large.bin"] = new byte[DocumentPackage.MaxAssetBytes + 1] },
+            null);
+
+        Assert.Throws<ArgumentException>(() => DocumentPackage.SaveContent(content, GetTempPath()));
+    }
+
+    [Fact]
+    public void SaveContent_StaleDocumentVersion_Throws()
+    {
+        DocumentPackageContent content = new(
+            CreateSampleDocument() with { FormatVersion = 1 },
+            new Dictionary<string, byte[]>(),
+            null);
+
+        Assert.Throws<InvalidOperationException>(() => DocumentPackage.SaveContent(content, GetTempPath()));
+    }
+
+    private static void CreatePackage(string path, string documentJson)
+    {
+        using FileStream stream = File.Create(path);
+        using ZipArchive archive = new(stream, ZipArchiveMode.Create);
+        ZipArchiveEntry entry = archive.CreateEntry(DocumentPackage.DocumentEntry);
+        using Stream entryStream = entry.Open();
+        entryStream.Write(Encoding.UTF8.GetBytes(documentJson));
     }
 }

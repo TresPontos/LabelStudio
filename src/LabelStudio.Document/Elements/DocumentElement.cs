@@ -9,4 +9,9 @@ public abstract record DocumentElement(
     InkChannel Ink)
 {
     public abstract string ElementType { get; }
+
+    public string? Name { get; init; }
+    public bool IsVisible { get; init; } = true;
+    public bool IsLocked { get; init; }
+    public int RotationMillidegrees { get; init; }
 }

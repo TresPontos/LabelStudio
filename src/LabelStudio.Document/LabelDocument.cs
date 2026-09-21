@@ -11,16 +11,18 @@ public sealed record LabelDocument(
     string MediaProfileId,
     MediaSnapshot MediaGeometry,
     IReadOnlyList<DocumentElement> Elements,
-    DocumentPrintDefaults PrintDefaults)
+    DocumentPrintDefaults PrintDefaults,
+    DocumentDesignMetadata DesignMetadata)
 {
-    public const int CurrentFormatVersion = 1;
+    public const int CurrentFormatVersion = 2;
 
     public static LabelDocument Create(
         PhysicalSize pageDimensions,
         string mediaProfileId,
         MediaSnapshot mediaGeometry,
         IEnumerable<DocumentElement>? elements = null,
-        DocumentPrintDefaults? printDefaults = null)
+        DocumentPrintDefaults? printDefaults = null,
+        DocumentDesignMetadata? designMetadata = null)
         => new(
             DocumentId.New(),
             CurrentFormatVersion,
@@ -28,7 +30,8 @@ public sealed record LabelDocument(
             mediaProfileId,
             mediaGeometry,
             (elements ?? []).ToList().AsReadOnly(),
-            printDefaults ?? DocumentPrintDefaults.Default);
+            printDefaults ?? DocumentPrintDefaults.Default,
+            designMetadata ?? DocumentDesignMetadata.Default);
 
     public LabelDocument WithElements(IReadOnlyList<DocumentElement> newElements) =>
         this with { Elements = newElements };

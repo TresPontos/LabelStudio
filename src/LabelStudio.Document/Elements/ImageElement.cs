@@ -11,4 +11,6 @@ public sealed record ImageElement(
     : DocumentElement(Id, Bounds, Ink)
 {
     public override string ElementType => "image";
+
+    public bool LockAspectRatio { get; init; } = true;
 }

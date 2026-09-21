@@ -13,7 +13,6 @@ internal static class DocumentJsonSerializer
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
     public static string Serialize(LabelDocument document)
@@ -26,6 +25,7 @@ internal static class DocumentJsonSerializer
             ["mediaProfileId"] = document.MediaProfileId,
             ["mediaGeometry"] = SerializeMediaSnapshot(document.MediaGeometry),
             ["printDefaults"] = SerializePrintDefaults(document.PrintDefaults),
+            ["designMetadata"] = SerializeDesignMetadata(document.DesignMetadata),
             ["elements"] = new JsonArray(
                 document.Elements.Select(SerializeElement).ToArray()),
         };
@@ -48,6 +48,7 @@ internal static class DocumentJsonSerializer
             ?? throw new InvalidDataException("Missing mediaProfileId.");
         MediaSnapshot mediaGeometry = DeserializeMediaSnapshot(root["mediaGeometry"]?.AsObject());
         DocumentPrintDefaults printDefaults = DeserializePrintDefaults(root["printDefaults"]?.AsObject());
+        DocumentDesignMetadata designMetadata = DeserializeDesignMetadata(root["designMetadata"]?.AsObject());
 
         JsonArray? elementArray = root["elements"]?.AsArray();
         List<DocumentElement> elements = [];
@@ -69,7 +70,8 @@ internal static class DocumentJsonSerializer
             mediaProfileId,
             mediaGeometry,
             elements.AsReadOnly(),
-            printDefaults);
+            printDefaults,
+            designMetadata);
     }
 
     public static int ReadFormatVersion(string json)
@@ -129,6 +131,79 @@ internal static class DocumentJsonSerializer
             obj["dpi"]?.GetValue<int>() ?? 300);
     }
 
+    private static JsonObject SerializeDesignMetadata(DocumentDesignMetadata metadata) => new()
+    {
+        ["groups"] = new JsonArray(metadata.Groups.Select(group => new JsonObject
+        {
+            ["id"] = group.Id,
+            ["name"] = group.Name,
+            ["memberIds"] = new JsonArray(group.MemberIds.Select(id => JsonValue.Create(id)).ToArray()),
+            ["visible"] = group.IsVisible,
+            ["locked"] = group.IsLocked,
+        }).ToArray()),
+        ["guides"] = new JsonArray(metadata.Guides.Select(guide => new JsonObject
+        {
+            ["id"] = guide.Id,
+            ["orientation"] = guide.Orientation.ToString().ToLowerInvariant(),
+            ["position"] = guide.Position.Value,
+            ["name"] = guide.Name,
+        }).ToArray()),
+        ["grid"] = new JsonObject
+        {
+            ["xSpacing"] = metadata.Grid.XSpacing.Value,
+            ["ySpacing"] = metadata.Grid.YSpacing.Value,
+            ["origin"] = SerializePoint(metadata.Grid.Origin),
+            ["majorInterval"] = metadata.Grid.MajorInterval,
+        },
+    };
+
+    private static DocumentDesignMetadata DeserializeDesignMetadata(JsonObject? obj)
+    {
+        if (obj is null) return DocumentDesignMetadata.Default;
+
+        List<ElementGroup> groups = [];
+        if (obj["groups"] is JsonArray groupArray)
+        {
+            foreach (JsonObject group in groupArray.OfType<JsonObject>())
+            {
+                IReadOnlyList<string> memberIds = group["memberIds"] is JsonArray memberArray
+                    ? memberArray.Select(node => node?.GetValue<string>() ?? "").ToList().AsReadOnly()
+                    : Array.Empty<string>();
+                groups.Add(new ElementGroup(
+                    group["id"]?.GetValue<string>() ?? Guid.NewGuid().ToString("D"),
+                    group["name"]?.GetValue<string>(),
+                    memberIds,
+                    group["visible"]?.GetValue<bool>() ?? true,
+                    group["locked"]?.GetValue<bool>() ?? false));
+            }
+        }
+
+        List<DocumentGuide> guides = [];
+        if (obj["guides"] is JsonArray guideArray)
+        {
+            foreach (JsonObject guide in guideArray.OfType<JsonObject>())
+            {
+                guides.Add(new DocumentGuide(
+                    guide["id"]?.GetValue<string>() ?? Guid.NewGuid().ToString("D"),
+                    Enum.TryParse(guide["orientation"]?.GetValue<string>(), true, out DocumentGuideOrientation orientation)
+                        ? orientation : DocumentGuideOrientation.Horizontal,
+                    new Micrometre(guide["position"]?.GetValue<int>() ?? 0),
+                    guide["name"]?.GetValue<string>()));
+            }
+        }
+
+        JsonObject? grid = obj["grid"]?.AsObject();
+        DocumentGridGeometry gridGeometry = grid is null
+            ? DocumentGridGeometry.Default
+            : new DocumentGridGeometry(
+                new Micrometre(grid["xSpacing"]?.GetValue<int>() ?? DocumentGridGeometry.Default.XSpacing.Value),
+                new Micrometre(grid["ySpacing"]?.GetValue<int>() ?? DocumentGridGeometry.Default.YSpacing.Value),
+                DeserializePoint(grid["origin"]?.AsObject()),
+                grid["majorInterval"]?.GetValue<int>() ?? DocumentGridGeometry.Default.MajorInterval);
+
+        return new DocumentDesignMetadata(groups.AsReadOnly(), guides.AsReadOnly(), gridGeometry);
+    }
+
     private static JsonObject SerializeRect(MicrometreRect rect) => new()
     {
         ["x"] = rect.X.Value,
@@ -155,6 +230,10 @@ internal static class DocumentJsonSerializer
             ["type"] = element.ElementType,
             ["bounds"] = SerializeRect(element.Bounds),
             ["ink"] = element.Ink.ToString().ToLowerInvariant(),
+            ["name"] = element.Name,
+            ["visible"] = element.IsVisible,
+            ["locked"] = element.IsLocked,
+            ["rotationMillidegrees"] = element.RotationMillidegrees,
         };
 
         switch (element)
@@ -170,6 +249,7 @@ internal static class DocumentJsonSerializer
                 break;
             case ImageElement img:
                 obj["assetId"] = img.AssetId;
+                obj["lockAspectRatio"] = img.LockAspectRatio;
                 break;
             case TextElement text:
                 obj["text"] = text.Text;
@@ -189,7 +269,7 @@ internal static class DocumentJsonSerializer
         InkChannel ink = Enum.TryParse<InkChannel>(obj["ink"]?.GetValue<string>(), true, out var i)
             ? i : InkChannel.Black;
 
-        return type switch
+        DocumentElement element = type switch
         {
             "rectangle" => new RectangleElement(
                 id, bounds, ink,
@@ -203,13 +283,24 @@ internal static class DocumentJsonSerializer
                 ink),
             "image" => new ImageElement(
                 id, bounds, ink,
-                obj["assetId"]?.GetValue<string>() ?? ""),
+                obj["assetId"]?.GetValue<string>() ?? "")
+            {
+                LockAspectRatio = obj["lockAspectRatio"]?.GetValue<bool>() ?? true,
+            },
             "text" => new TextElement(
                 id, bounds, ink,
                 obj["text"]?.GetValue<string>() ?? "",
                 obj["fontSizePoints"]?.GetValue<int>() ?? 12,
                 obj["fontFamily"]?.GetValue<string>()),
             _ => throw new InvalidDataException($"Unknown element type: {type}"),
+        };
+
+        return element with
+        {
+            Name = obj["name"]?.GetValue<string>(),
+            IsVisible = obj["visible"]?.GetValue<bool>() ?? true,
+            IsLocked = obj["locked"]?.GetValue<bool>() ?? false,
+            RotationMillidegrees = obj["rotationMillidegrees"]?.GetValue<int>() ?? 0,
         };
     }
 

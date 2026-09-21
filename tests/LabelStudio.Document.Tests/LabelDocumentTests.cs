@@ -14,10 +14,29 @@ public class LabelDocumentTests
         LabelDocument doc = LabelDocument.Create(dims, "brother.dk-22251", snap);
 
         Assert.NotEqual(Guid.Empty, doc.Id.Value);
-        Assert.Equal(1, doc.FormatVersion);
+        Assert.Equal(2, doc.FormatVersion);
         Assert.Equal(dims, doc.PageDimensions);
         Assert.Equal("brother.dk-22251", doc.MediaProfileId);
         Assert.Empty(doc.Elements);
+        Assert.Empty(doc.DesignMetadata.Groups);
+        Assert.Empty(doc.DesignMetadata.Guides);
+        Assert.Equal(new Micrometre(1000), doc.DesignMetadata.Grid.XSpacing);
+        Assert.Equal(new Micrometre(1000), doc.DesignMetadata.Grid.YSpacing);
+        Assert.Equal(MicrometrePoint.Zero, doc.DesignMetadata.Grid.Origin);
+        Assert.Equal(10, doc.DesignMetadata.Grid.MajorInterval);
+    }
+
+    [Fact]
+    public void Elements_HaveV2DesignDefaults()
+    {
+        RectangleElement rectangle = RectangleElement.Create("r1", MicrometreRect.Zero);
+        ImageElement image = new("i1", MicrometreRect.Zero, InkChannel.Black, "image.bin");
+
+        Assert.Null(rectangle.Name);
+        Assert.True(rectangle.IsVisible);
+        Assert.False(rectangle.IsLocked);
+        Assert.Equal(0, rectangle.RotationMillidegrees);
+        Assert.True(image.LockAspectRatio);
     }
 
     [Fact]

@@ -5,7 +5,7 @@ namespace LabelStudio.Storage.Tests;
 public class DocumentMigratorTests
 {
     [Fact]
-    public void MigrateToCurrent_Version1_ReturnsUnchanged()
+    public void MigrateToCurrent_Version1_AddsV2Defaults()
     {
         string json = """
         {
@@ -19,13 +19,22 @@ public class DocumentMigratorTests
                 "printableArea": { "x": 1500, "y": 0, "width": 58900, "height": 0 }
             },
             "printDefaults": { "defaultInk": "black", "autoCut": true, "cutAtEnd": true, "dpi": 300 },
-            "elements": []
+            "elements": [
+                { "id": "r1", "type": "rectangle" },
+                { "id": "i1", "type": "image", "assetId": "image.bin" }
+            ]
         }
         """;
 
         DocumentMigrator migrator = new();
         string result = migrator.MigrateToCurrent(json);
-        Assert.Equal(json, result);
+        System.Text.Json.Nodes.JsonObject root = System.Text.Json.Nodes.JsonNode.Parse(result)!.AsObject();
+        Assert.Equal(2, root["formatVersion"]!.GetValue<int>());
+        Assert.NotNull(root["designMetadata"]);
+        Assert.True(root["elements"]![0]!["visible"]!.GetValue<bool>());
+        Assert.False(root["elements"]![0]!["locked"]!.GetValue<bool>());
+        Assert.Equal(0, root["elements"]![0]!["rotationMillidegrees"]!.GetValue<int>());
+        Assert.True(root["elements"]![1]!["lockAspectRatio"]!.GetValue<bool>());
     }
 
     [Fact]
@@ -47,8 +56,16 @@ public class DocumentMigratorTests
         migrator.Register(stub);
 
         string result = migrator.MigrateToCurrent(v0Json);
-        Assert.Contains("formatVersion\": 1", result);
+        Assert.Contains("formatVersion\": 2", result);
         Assert.Contains("oldField", result);
+    }
+
+    [Fact]
+    public void Register_MigrationThatSkipsVersion_Throws()
+    {
+        DocumentMigrator migrator = new();
+
+        Assert.Throws<ArgumentException>(() => migrator.Register(new StubMigration0to2()));
     }
 
     [Fact]
@@ -69,5 +86,12 @@ public class DocumentMigratorTests
         {
             return documentJson.Replace("formatVersion\": 0", "formatVersion\": 1");
         }
+    }
+
+    private sealed class StubMigration0to2 : IDocumentMigration
+    {
+        public int FromVersion => 0;
+        public int ToVersion => 2;
+        public string Migrate(string documentJson) => documentJson;
     }
 }

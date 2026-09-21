@@ -25,10 +25,20 @@ public sealed class DocumentMigrator
 {
     private readonly Dictionary<int, IDocumentMigration> _migrationsByFromVersion = new();
 
+    public DocumentMigrator()
+    {
+        Register(new DocumentMigrationV1ToV2());
+    }
+
     public int CurrentVersion => LabelDocument.CurrentFormatVersion;
 
     public void Register(IDocumentMigration migration)
     {
+        if (migration.ToVersion != migration.FromVersion + 1)
+        {
+            throw new ArgumentException("A document migration must advance exactly one version.", nameof(migration));
+        }
+
         _migrationsByFromVersion[migration.FromVersion] = migration;
     }
 
@@ -50,7 +60,14 @@ public sealed class DocumentMigrator
             }
 
             documentJson = migration.Migrate(documentJson);
-            version = migration.ToVersion;
+            int migratedVersion = DocumentJsonSerializer.ReadFormatVersion(documentJson);
+            if (migratedVersion != version + 1 || migratedVersion != migration.ToVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Migration from version {version} did not advance exactly one version.");
+            }
+
+            version = migratedVersion;
         }
 
         return documentJson;
