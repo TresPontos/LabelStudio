@@ -2,3 +2,11 @@
 LabelStudioApp/
 **/bin/
 **/obj/
+
+# Test/probe artifacts
+artifacts/
+
+# IDE
+.vs/
+*.user
+*.suo
