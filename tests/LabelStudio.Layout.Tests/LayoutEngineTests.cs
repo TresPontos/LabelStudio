@@ -81,13 +81,19 @@ public class LayoutEngineTests
     {
         TextElement text = new("t1",
             new(new(0), new(0), new(20000), new(3000)),
-            InkChannel.Black, "Hello World", 24, null);
+            InkChannel.Black, "Hello World", 24, "Segoe UI")
+        {
+            RotationMillidegrees = 90_000,
+        };
         LabelDocument doc = CreateDoc(text);
 
         PreparedScene scene = new LayoutEngine().Prepare(doc);
         PreparedElement pe = Assert.Single(scene.Elements);
 
         Assert.Equal("Hello World", pe.Content.TextContent);
+        Assert.Equal(24, pe.TextFontSizePoints);
+        Assert.Equal("Segoe UI", pe.TextFontFamily);
+        Assert.Equal(90_000, pe.RotationMillidegrees);
         Assert.Equal(PreparedContentType.Text, pe.Content.ContentType);
     }
 

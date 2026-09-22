@@ -28,6 +28,8 @@ public sealed class DocumentMigrator
     public DocumentMigrator()
     {
         Register(new DocumentMigrationV1ToV2());
+        Register(new DocumentMigrationV2ToV3());
+        Register(new DocumentMigrationV3ToV4());
     }
 
     public int CurrentVersion => LabelDocument.CurrentFormatVersion;

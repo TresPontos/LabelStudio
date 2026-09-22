@@ -43,6 +43,25 @@ public sealed class MonochromeRaster
         Array.Clear(_data, 0, _data.Length);
     }
 
+    public void ClearOutsideHorizontalRange(int left, int width)
+    {
+        int first = Math.Clamp(left, 0, Width);
+        int last = Math.Clamp(left + width, first, Width);
+
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < first; x++)
+            {
+                ClearPixel(x, y);
+            }
+
+            for (int x = last; x < Width; x++)
+            {
+                ClearPixel(x, y);
+            }
+        }
+    }
+
     public ReadOnlySpan<byte> GetRow(int y)
     {
         if (y < 0 || y >= Height) throw new ArgumentOutOfRangeException(nameof(y));

@@ -2,6 +2,12 @@ using LabelStudio.Document.Units;
 
 namespace LabelStudio.Editor;
 
+public readonly record struct CanvasDisplayBounds(double Left, double Top, double Width, double Height)
+{
+    public double Right => Left + Width;
+    public double Bottom => Top + Height;
+}
+
 public sealed class CanvasTransform
 {
     public const double BaseDipsPerMm = 3.0;
@@ -12,6 +18,8 @@ public sealed class CanvasTransform
     private double _offsetX;
     private double _offsetY;
     private int _viewRotationDegrees;
+    private double _contentWidthMicrometres;
+    private double _contentHeightMicrometres;
 
     public double Zoom
     {
@@ -56,6 +64,24 @@ public sealed class CanvasTransform
             _ => (1.0, 0.0),
         };
 
+    public double RotationOffsetX => GetRotationOffset().X;
+    public double RotationOffsetY => GetRotationOffset().Y;
+
+    public void SetContentSize(Micrometre width, Micrometre height)
+    {
+        _contentWidthMicrometres = Math.Max(0, width.Value);
+        _contentHeightMicrometres = Math.Max(0, height.Value);
+    }
+
+    public void SetContentSizePreservingDocumentOrigin(Micrometre width, Micrometre height)
+    {
+        (double beforeX, double beforeY) = DocumentToCanvas(Micrometre.Zero, Micrometre.Zero);
+        SetContentSize(width, height);
+        (double afterX, double afterY) = DocumentToCanvas(Micrometre.Zero, Micrometre.Zero);
+        _offsetX += beforeX - afterX;
+        _offsetY += beforeY - afterY;
+    }
+
     public double DocumentToCanvasX(Micrometre x) => DocumentToCanvas(x, Micrometre.Zero).X;
     public double DocumentToCanvasY(Micrometre y) => DocumentToCanvas(Micrometre.Zero, y).Y;
 
@@ -73,14 +99,16 @@ public sealed class CanvasTransform
         (double cos, double sin) = RotationMatrix;
         double rx = dx * cos - dy * sin;
         double ry = dx * sin + dy * cos;
+        (double rotationOffsetX, double rotationOffsetY) = GetRotationOffset();
 
-        return (rx + _offsetX, ry + _offsetY);
+        return (rx + rotationOffsetX + _offsetX, ry + rotationOffsetY + _offsetY);
     }
 
     public MicrometrePoint CanvasToDocument(double x, double y)
     {
-        double sx = x - _offsetX;
-        double sy = y - _offsetY;
+        (double rotationOffsetX, double rotationOffsetY) = GetRotationOffset();
+        double sx = x - _offsetX - rotationOffsetX;
+        double sy = y - _offsetY - rotationOffsetY;
 
         (double cos, double sin) = RotationMatrix;
         double rx = sx * cos + sy * sin;
@@ -113,6 +141,64 @@ public sealed class CanvasTransform
         return IsRotated ? (h, w) : (w, h);
     }
 
+    public CanvasDisplayBounds GetDocumentDisplayBounds()
+    {
+        (double width, double height) = GetRotatedDisplaySize(
+            _contentWidthMicrometres,
+            _contentHeightMicrometres);
+        return new(_offsetX, _offsetY, width, height);
+    }
+
+    public void FitToViewport(
+        Micrometre contentWidth,
+        Micrometre contentHeight,
+        double viewportWidth,
+        double viewportHeight,
+        double margin)
+    {
+        SetContentSize(contentWidth, contentHeight);
+
+        double baseWidth = contentWidth.Value / 1000.0 * BaseDipsPerMm;
+        double baseHeight = contentHeight.Value / 1000.0 * BaseDipsPerMm;
+        if (IsRotated)
+        {
+            (baseWidth, baseHeight) = (baseHeight, baseWidth);
+        }
+
+        double availableWidth = Math.Max(1, viewportWidth - margin * 2);
+        double availableHeight = Math.Max(1, viewportHeight - margin * 2);
+        Zoom = Math.Min(availableWidth / baseWidth, availableHeight / baseHeight);
+
+        (double displayWidth, double displayHeight) = GetRotatedDisplaySize(
+            contentWidth.Value,
+            contentHeight.Value);
+        OffsetX = (viewportWidth - displayWidth) / 2;
+        OffsetY = (viewportHeight - displayHeight) / 2;
+    }
+
+    public void FitToViewportTopLeft(
+        Micrometre contentWidth,
+        Micrometre contentHeight,
+        double viewportWidth,
+        double viewportHeight,
+        double padding)
+    {
+        SetContentSize(contentWidth, contentHeight);
+
+        double baseWidth = contentWidth.Value / 1000.0 * BaseDipsPerMm;
+        double baseHeight = contentHeight.Value / 1000.0 * BaseDipsPerMm;
+        if (IsRotated)
+        {
+            (baseWidth, baseHeight) = (baseHeight, baseWidth);
+        }
+
+        double availableWidth = Math.Max(1, viewportWidth - padding * 2);
+        double availableHeight = Math.Max(1, viewportHeight - padding * 2);
+        Zoom = Math.Min(availableWidth / baseWidth, availableHeight / baseHeight);
+        OffsetX = padding;
+        OffsetY = padding;
+    }
+
     public void Reset()
     {
         _zoom = 1.0;
@@ -126,5 +212,19 @@ public sealed class CanvasTransform
         _zoom = 1.0;
         _offsetX = 0;
         _offsetY = 0;
+    }
+
+    private (double X, double Y) GetRotationOffset()
+    {
+        double width = _contentWidthMicrometres / 1000.0 * DipsPerMm;
+        double height = _contentHeightMicrometres / 1000.0 * DipsPerMm;
+
+        return _viewRotationDegrees switch
+        {
+            90 => (height, 0),
+            180 => (width, height),
+            270 => (0, width),
+            _ => (0, 0),
+        };
     }
 }

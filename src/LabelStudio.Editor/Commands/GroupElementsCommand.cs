@@ -86,7 +86,11 @@ public sealed class GroupElementsCommand : IEditorCommand
 
         ElementGroup newGroup = new(_groupId, _groupName, _memberIds);
         List<ElementGroup> groups = [.. document.DesignMetadata.Groups, newGroup];
-        DocumentDesignMetadata newMetadata = new(groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid);
+        DocumentDesignMetadata newMetadata = new(
+            groups,
+            document.DesignMetadata.Guides,
+            document.DesignMetadata.Grid,
+            document.DesignMetadata.SafeMargins);
 
         return document with
         {
@@ -103,7 +107,11 @@ public sealed class GroupElementsCommand : IEditorCommand
             .Where(g => !string.Equals(g.Id, _groupId, StringComparison.Ordinal))
             .ToList();
 
-        DocumentDesignMetadata newMetadata = new(groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid);
+        DocumentDesignMetadata newMetadata = new(
+            groups,
+            document.DesignMetadata.Guides,
+            document.DesignMetadata.Grid,
+            document.DesignMetadata.SafeMargins);
 
         List<DocumentElement> elements = _beforeElementOrder
             .Where(byId.ContainsKey)

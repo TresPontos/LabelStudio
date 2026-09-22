@@ -35,7 +35,11 @@ public sealed class UngroupElementsCommand : IEditorCommand
             .Where(g => !string.Equals(g.Id, _groupId, StringComparison.Ordinal))
             .ToList();
 
-        DocumentDesignMetadata newMetadata = new(groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid);
+        DocumentDesignMetadata newMetadata = new(
+            groups,
+            document.DesignMetadata.Guides,
+            document.DesignMetadata.Grid,
+            document.DesignMetadata.SafeMargins);
 
         return document with { DesignMetadata = newMetadata };
     }
@@ -43,7 +47,11 @@ public sealed class UngroupElementsCommand : IEditorCommand
     public LabelDocument Undo(LabelDocument document)
     {
         List<ElementGroup> groups = [.. document.DesignMetadata.Groups, _groupRecord];
-        DocumentDesignMetadata newMetadata = new(groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid);
+        DocumentDesignMetadata newMetadata = new(
+            groups,
+            document.DesignMetadata.Guides,
+            document.DesignMetadata.Grid,
+            document.DesignMetadata.SafeMargins);
 
         Dictionary<string, DocumentElement> byId = document.Elements.ToDictionary(e => e.Id, StringComparer.Ordinal);
         List<DocumentElement> elements = _beforeElementOrder

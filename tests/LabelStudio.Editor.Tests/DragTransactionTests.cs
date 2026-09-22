@@ -68,6 +68,40 @@ public class DragTransactionTests
     }
 
     [Fact]
+    public void Resize_AutomaticTextFrame_BecomesFixedAndUndoesAtomically()
+    {
+        TextElement text = new(
+            "t1",
+            new MicrometreRect(new(1000), new(1000), new(5000), new(3000)),
+            InkChannel.Black,
+            "Text",
+            18,
+            null)
+        {
+            FrameSizing = TextFrameSizingMode.AutoHeight,
+        };
+        LabelDocument doc = CreateDoc(text);
+        CommandHistory history = new();
+        DragTransaction drag = new();
+        drag.Begin([text.Id], doc);
+        MicrometreRect resized = new(new(1000), new(1000), new(8000), new(4000));
+
+        IEditorCommand? command = drag.Commit(
+            doc,
+            new Dictionary<string, MicrometreRect> { [text.Id] = resized },
+            setTextFrameFixed: true);
+        doc = history.Push(Assert.IsAssignableFrom<IEditorCommand>(command), doc);
+
+        TextElement changed = (TextElement)doc.Elements[0];
+        Assert.Equal(resized, changed.Bounds);
+        Assert.Equal(TextFrameSizingMode.Fixed, changed.FrameSizing);
+        Assert.Equal(1, history.UndoCount);
+
+        doc = history.Undo(doc);
+        Assert.Equal(text, doc.Elements[0]);
+    }
+
+    [Fact]
     public void Redo_RestoresExactGeometry()
     {
         RectangleElement rect = RectangleElement.Create("r1", new(new(1234), new(5678), new(4321), new(8765)));

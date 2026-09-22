@@ -62,6 +62,23 @@ public class ThermalTargetRendererTests
     }
 
     [Fact]
+    public void Render_ClipsPixelsOutsidePrintableHeadWindow()
+    {
+        RenderTarget target = CreateTarget(720, 100);
+        PreparedElement rect = new("r1",
+            new MicrometreRect(new(58_000), new(5000), new(6000), new(5000)),
+            InkChannel.Black,
+            PreparedContent.Rectangle())
+        { IsFilled = true };
+
+        RenderedPlanes planes = new ThermalTargetRenderer().Render(SceneWithElements(rect), target);
+
+        Assert.True(planes.BlackPlane.GetPixel(707, 59));
+        Assert.False(planes.BlackPlane.GetPixel(708, 59));
+        Assert.False(planes.BlackPlane.GetPixel(719, 59));
+    }
+
+    [Fact]
     public void Render_RedInk_WritesToRedPlane()
     {
         RenderTarget target = CreateTarget(720, 100, red: true);
@@ -125,6 +142,118 @@ public class ThermalTargetRendererTests
         Assert.Null(planes.RedPlane);
     }
 
+    [Fact]
+    public void Render_ChannelMarkedAsNotRed_DoesNotCreateRedPlane()
+    {
+        RenderTarget target = new(
+            300, 300, 720, 100,
+            new MicrometreRect(new(1500), new(0), new(14_000), new(47_900)),
+            555, 165,
+            [new("Black", false), new("Red", false)]);
+
+        RenderedPlanes planes = new ThermalTargetRenderer().Render(SceneWithElements(), target);
+
+        Assert.Null(planes.RedPlane);
+    }
+
+    [Fact]
+    public void Render_TextUsesActualGlyphShapes()
+    {
+        RenderTarget target = CreateTarget(720, 200);
+        MicrometreRect bounds = new(new(5000), new(5000), new(30_000), new(10_000));
+        PreparedElement letterA = new("a", bounds, InkChannel.Black, PreparedContent.Text("A"))
+        {
+            TextFontSizePoints = 36,
+            TextFontFamily = "Segoe UI",
+        };
+        PreparedElement letterB = letterA with
+        {
+            SourceElementId = "b",
+            Content = PreparedContent.Text("B"),
+        };
+
+        MonochromeRaster a = new ThermalTargetRenderer().Render(SceneWithElements(letterA), target).BlackPlane;
+        MonochromeRaster b = new ThermalTargetRenderer().Render(SceneWithElements(letterB), target).BlackPlane;
+
+        Assert.True(AnyPixelSet(a));
+        Assert.True(AnyPixelSet(b));
+        Assert.False(a.Data.Span.SequenceEqual(b.Data.Span));
+    }
+
+    [Fact]
+    public void Render_TextRotationRotatesPrintedGlyphs()
+    {
+        RenderTarget target = CreateTarget(720, 500);
+        PreparedElement horizontal = new(
+            "text",
+            new(new(10_000), new(10_000), new(35_000), new(12_000)),
+            InkChannel.Black,
+            PreparedContent.Text("WIDE"))
+        {
+            TextFontSizePoints = 36,
+            TextFontFamily = "Segoe UI",
+        };
+        PreparedElement vertical = horizontal with { RotationMillidegrees = 90_000 };
+
+        MonochromeRaster horizontalRaster = new ThermalTargetRenderer()
+            .Render(SceneWithElements(horizontal), target).BlackPlane;
+        MonochromeRaster verticalRaster = new ThermalTargetRenderer()
+            .Render(SceneWithElements(vertical), target).BlackPlane;
+        (int horizontalWidth, int horizontalHeight) = InkDimensions(horizontalRaster);
+        (int verticalWidth, int verticalHeight) = InkDimensions(verticalRaster);
+
+        Assert.True(horizontalWidth > horizontalHeight);
+        Assert.True(verticalHeight > verticalWidth);
+    }
+
+    [Fact]
+    public void Render_MultilineTextDrawsBothLines()
+    {
+        RenderTarget target = CreateTarget(720, 300);
+        PreparedElement firstLine = new(
+            "single",
+            new(new(5_000), new(5_000), new(30_000), new(20_000)),
+            InkChannel.Black,
+            PreparedContent.Text("TOP"))
+        {
+            TextFontSizePoints = 24,
+            TextFontFamily = "Segoe UI",
+        };
+        PreparedElement twoLines = firstLine with
+        {
+            SourceElementId = "multiline",
+            Content = PreparedContent.Text("TOP\nBOTTOM"),
+        };
+
+        MonochromeRaster single = new ThermalTargetRenderer().Render(SceneWithElements(firstLine), target).BlackPlane;
+        MonochromeRaster multiline = new ThermalTargetRenderer().Render(SceneWithElements(twoLines), target).BlackPlane;
+
+        Assert.True(InkDimensions(multiline).Height > InkDimensions(single).Height);
+    }
+
+    [Fact]
+    public void Render_DocumentOriginMapsPrintableStartToRasterOrigin()
+    {
+        RenderTarget target = CreateTarget(720, 100) with
+        {
+            DocumentOriginX = new Micrometre(5_000),
+            DocumentOriginY = new Micrometre(3_000),
+        };
+        PreparedElement rectangle = new(
+            "rect",
+            new(new(5_000), new(3_000), new(5_000), new(2_000)),
+            InkChannel.Black,
+            PreparedContent.Rectangle())
+        {
+            IsFilled = true,
+        };
+
+        MonochromeRaster raster = new ThermalTargetRenderer()
+            .Render(SceneWithElements(rectangle), target).BlackPlane;
+
+        Assert.True(raster.GetPixel(12, 0));
+    }
+
     private static bool AnyPixelSet(MonochromeRaster raster)
     {
         ReadOnlySpan<byte> data = raster.Data.Span;
@@ -133,5 +262,26 @@ public class ThermalTargetRendererTests
             if (data[i] != 0) return true;
         }
         return false;
+    }
+
+    private static (int Width, int Height) InkDimensions(MonochromeRaster raster)
+    {
+        int left = raster.Width;
+        int top = raster.Height;
+        int right = -1;
+        int bottom = -1;
+        for (int y = 0; y < raster.Height; y++)
+        {
+            for (int x = 0; x < raster.Width; x++)
+            {
+                if (!raster.GetPixel(x, y)) continue;
+                left = Math.Min(left, x);
+                top = Math.Min(top, y);
+                right = Math.Max(right, x);
+                bottom = Math.Max(bottom, y);
+            }
+        }
+
+        return right < left ? (0, 0) : (right - left + 1, bottom - top + 1);
     }
 }

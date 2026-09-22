@@ -61,6 +61,8 @@ public sealed class MockFileBackend : IPrinterBackend
             ["hasRedPlane"] = job.Planes.RedPlane is not null,
             ["blackPlaneWidth"] = job.Planes.BlackPlane.Width,
             ["blackPlaneHeight"] = job.Planes.BlackPlane.Height,
+            ["labelWidthMicrometres"] = job.Intent.Scene.LabelSize.Width.Value,
+            ["labelLengthMicrometres"] = job.Intent.Scene.LabelSize.Height.Value,
             ["createdAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
         };
 

@@ -18,7 +18,7 @@ public class EndToEndTests
 
     private static LabelDocument CreateSampleDocument()
     {
-        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 0);
+        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 48.26);
         MediaSnapshot snap = new("brother.dk-22251", dims,
             new MicrometreRect(new(1500), new(0), new(58900), new(0)));
 
@@ -35,7 +35,8 @@ public class EndToEndTests
                 InkChannel.Black, "TEST", 24, null),
         ];
 
-        return LabelDocument.Create(dims, "brother.dk-22251", snap, elements);
+        return LabelDocument.Create(
+            dims, "brother.dk-22251", snap, elements, mediaKind: DocumentMediaKind.Continuous);
     }
 
     [Fact]
@@ -121,9 +122,62 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ContinuousCustomLengthControlsRasterRowsAndEncodedFeed()
+    {
+        LabelDocument document = CreateSampleDocument();
+        PhysicalSize dimensions = new(document.PageDimensions.Width, new Micrometre(100_000));
+        document = document with
+        {
+            PageDimensions = dimensions,
+            MediaGeometry = document.MediaGeometry with { PhysicalDimensions = dimensions },
+        };
+        PreparedScene scene = new LayoutEngine().Prepare(document);
+        MediaProfile media = MediaCatalog.CreateBuiltIn().Get(document.MediaProfileId);
+        BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(document.MediaProfileId);
+        QlContinuousLengthPlan plan = QlContinuousLengthPlanner.Plan(document.PageDimensions.Height, mapping);
+        RenderTarget target = new(
+            300, 300, 720, plan.RasterRows,
+            DocumentPrintableGeometry.GetMediaPrintableArea(document),
+            mapping.HeadLeftBlankDots,
+            mapping.PrintableWidthDots,
+            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", true)]);
+        RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
+        DevicePrintJob job = new(
+            new PrintIntent(document.Id, scene, media, PrintSettings.Default),
+            planes,
+            media,
+            PrintSettings.Default,
+            "custom-length");
+
+        QlEncodedJob encoded = new Ql800PrinterBackend().Encode(job);
+
+        Assert.Equal(1_111, plan.RasterRows);
+        Assert.Equal(plan.RasterRows, encoded.RasterLineCount);
+        Assert.Equal(mapping.MinimumFeedMarginDots, encoded.FeedMarginDots);
+    }
+
+    [Fact]
     public void NoPhysicalPrint_FromTest()
     {
         Ql800PrinterBackend backend = new();
         Assert.Throws<ArgumentNullException>(() => backend.Print(null!));
+    }
+
+    [Fact]
+    public void QlBackendRejectsUnsupportedScalarDpiWithoutPreflight()
+    {
+        LabelDocument document = CreateSampleDocument();
+        PreparedScene scene = new LayoutEngine().Prepare(document);
+        MediaProfile media = MediaCatalog.CreateBuiltIn().Get(document.MediaProfileId);
+        PrintSettings settings = PrintSettings.Default with { Dpi = 600 };
+        RenderedPlanes planes = new(new MonochromeRaster(720, 500), null);
+        DevicePrintJob job = new(
+            new PrintIntent(document.Id, scene, media, settings),
+            planes,
+            media,
+            settings,
+            "unsupported-dpi");
+
+        Assert.Throws<ArgumentException>(() => new Ql800PrinterBackend().Encode(job));
     }
 }

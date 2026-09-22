@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using LabelStudio.Document.Units;
 using LabelStudio.Printing;
 using LabelStudio.Rendering;
 
@@ -129,10 +130,17 @@ public sealed class QlRasterEncoder
                     $"Continuous feed margin must be {options.Mapping.MinimumFeedMarginDots}..{options.Mapping.MaximumFeedMarginDots} dots.");
             }
 
-            if (options.BlackRaster.Height is < 150 or > 11_811)
+            int totalLengthDots = options.BlackRaster.Height + (2 * options.FeedMarginDots);
+            int minimumLengthDots = PhysicalUnits.MicrometresToDots(
+                QlContinuousLengthPlanner.MinimumCutLengthMicrometres,
+                QlContinuousLengthPlanner.Dpi);
+            int maximumLengthDots = PhysicalUnits.MicrometresToDots(
+                QlContinuousLengthPlanner.MaximumCutLengthMicrometres,
+                QlContinuousLengthPlanner.Dpi);
+            if (totalLengthDots < minimumLengthDots || totalLengthDots > maximumLengthDots)
             {
                 throw new ArgumentOutOfRangeException(nameof(options),
-                    "Continuous raster length must be 150..11811 rows at 300 dpi.");
+                    $"Continuous cut length must be {minimumLengthDots}..{maximumLengthDots} dots at 300 dpi.");
             }
         }
 
@@ -141,6 +149,12 @@ public sealed class QlRasterEncoder
              options.RedRaster.Height != options.BlackRaster.Height))
         {
             throw new ArgumentException("Black and red raster planes must have identical dimensions.");
+        }
+
+        if (options.RedRaster is not null && !options.Media.SupportsRed)
+        {
+            throw new ArgumentException(
+                $"Media '{options.Media.ProfileId}' does not support a red raster plane.");
         }
     }
 

@@ -10,9 +10,10 @@ public class CommandTests
 {
     private static LabelDocument CreateDoc(params DocumentElement[] elements)
     {
-        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 0);
+        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 48.26);
         MediaSnapshot snap = new("brother.dk-22251", dims, MicrometreRect.Zero);
-        return LabelDocument.Create(dims, "brother.dk-22251", snap, elements);
+        return LabelDocument.Create(
+            dims, "brother.dk-22251", snap, elements, mediaKind: DocumentMediaKind.Continuous);
     }
 
     [Fact]
@@ -210,6 +211,71 @@ public class CommandTests
         Assert.Equal(1800, result.Bounds.Y.Value);
         Assert.Equal(4400, result.Bounds.Width.Value);
         Assert.Equal(400, result.Bounds.Height.Value);
+    }
+
+    [Fact]
+    public void ChangeMedia_UpdatesProfileAndGeometryAndUndoRestoresThem()
+    {
+        LabelDocument document = CreateDoc(RectangleElement.Create("r1", MicrometreRect.Zero));
+        PhysicalSize newDimensions = PhysicalSize.FromMillimetres(17, 53.9);
+        MediaSnapshot newGeometry = new(
+            "brother.dk-11204",
+            newDimensions,
+            new(new(1500), new(3000), new(14_000), new(47_900)));
+        ChangeMediaCommand command = new(
+            document, "brother.dk-11204", newDimensions, newGeometry, DocumentMediaKind.DieCut);
+
+        LabelDocument changed = command.Execute(document);
+
+        Assert.Equal("brother.dk-11204", changed.MediaProfileId);
+        Assert.Equal(newDimensions, changed.PageDimensions);
+        Assert.Equal(DocumentMediaKind.DieCut, changed.MediaKind);
+        Assert.Equal(newGeometry, changed.MediaGeometry);
+        Assert.Same(document.Elements[0], changed.Elements[0]);
+        Assert.Equal(document, command.Undo(changed));
+    }
+
+    [Fact]
+    public void ChangePageLength_UpdatesOnlyLengthAndIsUndoable()
+    {
+        LabelDocument document = CreateDoc();
+        ChangePageLengthCommand command = new(document, new Micrometre(100_000));
+
+        LabelDocument changed = command.Execute(document);
+
+        Assert.Equal(document.PageDimensions.Width, changed.PageDimensions.Width);
+        Assert.Equal(new Micrometre(100_000), changed.PageDimensions.Height);
+        Assert.Equal(new Micrometre(100_000), changed.MediaGeometry.PhysicalDimensions.Height);
+        Assert.Equal(document, command.Undo(changed));
+    }
+
+    [Fact]
+    public void ChangePageLength_DoesNotMoveContentBeyondNewBoundary()
+    {
+        RectangleElement element = RectangleElement.Create(
+            "outside",
+            new(new(5_000), new(40_000), new(10_000), new(5_000)));
+        LabelDocument document = CreateDoc(element);
+        ChangePageLengthCommand command = new(document, new Micrometre(30_000));
+
+        LabelDocument changed = command.Execute(document);
+
+        Assert.Same(element, changed.Elements[0]);
+        Assert.Equal(new Micrometre(40_000), changed.Elements[0].Bounds.Y);
+        Assert.True(changed.Elements[0].Bounds.Bottom > changed.PageDimensions.Height);
+    }
+
+    [Fact]
+    public void ChangePageLength_RejectsWidthChangeAndDieCutMedia()
+    {
+        LabelDocument continuous = CreateDoc();
+        Assert.Throws<ArgumentException>(() => new ChangePageLengthCommand(
+            continuous,
+            new PhysicalSize(new Micrometre(61_000), new Micrometre(100_000))));
+
+        LabelDocument dieCut = continuous with { MediaKind = DocumentMediaKind.DieCut };
+        Assert.Throws<InvalidOperationException>(() =>
+            new ChangePageLengthCommand(dieCut, new Micrometre(100_000)));
     }
 
     [Fact]

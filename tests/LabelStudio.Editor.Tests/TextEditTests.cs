@@ -119,6 +119,21 @@ public class TextEditTests
     }
 
     [Fact]
+    public void ChangeRotation_ThenUndo_RestoresOriginalRotation()
+    {
+        TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
+            InkChannel.Black, "Same", 24, null);
+        LabelDocument doc = CreateDoc(text);
+        CommandHistory history = new();
+
+        doc = history.Push(new ChangePropertyCommand("t1", "rotationMillidegrees", 0, 90000), doc);
+        Assert.Equal(90000, ((TextElement)doc.Elements[0]).RotationMillidegrees);
+
+        doc = history.Undo(doc);
+        Assert.Equal(0, ((TextElement)doc.Elements[0]).RotationMillidegrees);
+    }
+
+    [Fact]
     public void Branch_UndoTextThenNewCommand_RemainsDirty()
     {
         TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
@@ -134,5 +149,151 @@ public class TextEditTests
 
         Assert.True(history.IsDirty);
         Assert.False(history.CanRedo);
+    }
+
+    [Fact]
+    public void Session_UpdateChangesDocumentLiveWithoutCreatingHistory()
+    {
+        TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
+            InkChannel.Black, "CAM", 24, null);
+        DocumentSession documentSession = new(CreateDoc(text));
+        documentSession.History.MarkSaved();
+        TextEditSession edit = new(documentSession);
+
+        edit.Begin("t1");
+        edit.Update("CAMERA");
+
+        Assert.Equal("CAMERA", ((TextElement)documentSession.Document.Elements[0]).Text);
+        Assert.Equal("CAMERA", edit.CurrentText);
+        Assert.Equal(0, documentSession.History.UndoCount);
+        Assert.True(documentSession.IsDirty);
+    }
+
+    [Fact]
+    public void Session_ManyUpdatesCommitAsOneUndoableOperation()
+    {
+        TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
+            InkChannel.Black, "CAM", 24, null);
+        DocumentSession documentSession = new(CreateDoc(text));
+        TextEditSession edit = new(documentSession);
+
+        edit.Begin("t1");
+        foreach (string value in new[] { "CAME", "CAMER", "CAMERA", "CAMERA 001" })
+        {
+            edit.Update(value);
+        }
+        edit.Commit();
+
+        Assert.Equal(1, documentSession.History.UndoCount);
+        Assert.Equal("CAMERA 001", ((TextElement)documentSession.Document.Elements[0]).Text);
+
+        documentSession.Undo();
+        Assert.Equal("CAM", ((TextElement)documentSession.Document.Elements[0]).Text);
+
+        documentSession.Redo();
+        Assert.Equal("CAMERA 001", ((TextElement)documentSession.Document.Elements[0]).Text);
+    }
+
+    [Fact]
+    public void Session_CancelRestoresOriginalAndCreatesNoCommand()
+    {
+        TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
+            InkChannel.Black, "Original", 24, null);
+        DocumentSession documentSession = new(CreateDoc(text));
+        documentSession.History.MarkSaved();
+        TextEditSession edit = new(documentSession);
+
+        edit.Begin("t1");
+        edit.Update("Changed");
+        edit.Cancel();
+
+        Assert.Equal("Original", ((TextElement)documentSession.Document.Elements[0]).Text);
+        Assert.Equal(0, documentSession.History.UndoCount);
+        Assert.False(edit.IsActive);
+        Assert.False(documentSession.IsDirty);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Line one\nLine two")]
+    public void Session_AllowsEmptyAndMultilineText(string value)
+    {
+        TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
+            InkChannel.Black, "Original", 24, null);
+        DocumentSession documentSession = new(CreateDoc(text));
+        TextEditSession edit = new(documentSession);
+
+        edit.Begin("t1");
+        edit.Update(value);
+        edit.Commit();
+
+        Assert.Equal(value, ((TextElement)documentSession.Document.Elements[0]).Text);
+    }
+
+    [Fact]
+    public void Session_UndoBackToSavePointClearsDirtyState()
+    {
+        TextElement text = new("t1", new(new(1000), new(1000), new(20000), new(3000)),
+            InkChannel.Black, "Original", 24, null);
+        DocumentSession documentSession = new(CreateDoc(text));
+        documentSession.History.MarkSaved();
+        TextEditSession edit = new(documentSession);
+
+        edit.Begin("t1");
+        edit.Update("Changed");
+        edit.Commit();
+        Assert.True(documentSession.IsDirty);
+
+        documentSession.Undo();
+        Assert.False(documentSession.IsDirty);
+        Assert.Equal("Original", ((TextElement)documentSession.Document.Elements[0]).Text);
+    }
+
+    [Fact]
+    public void Session_FixedFrameTyping_DoesNotChangeBounds()
+    {
+        TextElement text = new("t1", new(new(1000), new(2000), new(9000), new(3000)),
+            InkChannel.Black, "Short", 24, null);
+        DocumentSession documentSession = new(CreateDoc(text));
+        TextEditSession edit = new(documentSession);
+
+        edit.Begin("t1");
+        edit.Update("A much longer value that exceeds the fixed frame");
+        edit.Commit();
+
+        Assert.Equal(text.Bounds, ((TextElement)documentSession.Document.Elements[0]).Bounds);
+    }
+
+    [Fact]
+    public void Session_AutomaticFrameChange_UndoRestoresTextAndBoundsTogether()
+    {
+        TextElement text = new("t1", new(new(1000), new(2000), new(9000), new(3000)),
+            InkChannel.Black, "Short", 24, null)
+        {
+            FrameSizing = TextFrameSizingMode.AutoHeight,
+        };
+        DocumentSession documentSession = new(CreateDoc(text));
+        TextEditSession edit = new(documentSession, element => element with
+        {
+            Bounds = new MicrometreRect(
+                element.Bounds.X,
+                element.Bounds.Y,
+                element.Bounds.Width,
+                new Micrometre(element.Text.Length * 100)),
+        });
+
+        edit.Begin("t1");
+        edit.Update("Longer text");
+        edit.Commit();
+
+        TextElement changed = (TextElement)documentSession.Document.Elements[0];
+        Assert.Equal("Longer text", changed.Text);
+        Assert.Equal(1100, changed.Bounds.Height.Value);
+        Assert.Equal(1, documentSession.History.UndoCount);
+
+        documentSession.Undo();
+        TextElement restored = (TextElement)documentSession.Document.Elements[0];
+        Assert.Equal(text.Text, restored.Text);
+        Assert.Equal(text.Bounds, restored.Bounds);
     }
 }

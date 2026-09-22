@@ -170,7 +170,12 @@ public sealed class SelectionTransformService
             int newH = Math.Max(MinElementHeightMicrometres, (int)Math.Round(relH * newHeight, MidpointRounding.AwayFromZero));
 
             MicrometreRect finalBounds = new(new(newX), new(newY), new(newW), new(newH));
-            transforms.Add(new ElementTransform(id, element, ElementFactory.WithBounds(element, finalBounds)));
+            DocumentElement resized = ElementFactory.WithBounds(element, finalBounds);
+            if (resized is TextElement text)
+            {
+                resized = text with { FrameSizing = TextFrameSizingMode.Fixed };
+            }
+            transforms.Add(new ElementTransform(id, element, resized));
         }
         return transforms.ToArray();
     }

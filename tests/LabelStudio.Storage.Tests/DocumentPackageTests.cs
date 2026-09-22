@@ -19,7 +19,7 @@ public class DocumentPackageTests
 
     private static LabelDocument CreateSampleDocument()
     {
-        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 0);
+        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 48.26);
         MediaSnapshot snap = new(
             "brother.dk-22251",
             dims,
@@ -38,7 +38,14 @@ public class DocumentPackageTests
             new(200), InkChannel.Black);
         TextElement text = new("t1",
             new(new(1000), new(8000), new(20000), new(3000)),
-            InkChannel.Black, "Hello", 24, null);
+            InkChannel.Black, "Hello", 24, null)
+        {
+            FrameSizing = TextFrameSizingMode.AutoHeight,
+            Wrapping = TextWrappingMode.Wrap,
+            Overflow = TextOverflowMode.ShrinkToFit,
+            HorizontalAlignment = TextHorizontalAlignment.Center,
+            VerticalAlignment = TextVerticalAlignment.Bottom,
+        };
         ImageElement img = new("i1",
             new(new(25000), new(1000), new(10000), new(10000)),
             InkChannel.Black, "asset-001")
@@ -47,9 +54,10 @@ public class DocumentPackageTests
         DocumentDesignMetadata design = new(
             [new ElementGroup("group-1", "Main", ["r1", "t1"], false, true)],
             [new DocumentGuide("guide-1", DocumentGuideOrientation.Vertical, new(12500), "Center")],
-            new DocumentGridGeometry(new(2000), new(3000), new(new(100), new(200)), 5));
+            new DocumentGridGeometry(new(2000), new(3000), new(new(100), new(200)), 5),
+            new DocumentSafeMargins(new(1000), new(2000), new(3000), new(4000)));
         return LabelDocument.Create(dims, "brother.dk-22251", snap, [rect, line, text, img],
-            designMetadata: design);
+            designMetadata: design, mediaKind: DocumentMediaKind.Continuous);
     }
 
     [Fact]
@@ -64,6 +72,7 @@ public class DocumentPackageTests
         Assert.Equal(original.Id, loaded.Id);
         Assert.Equal(original.FormatVersion, loaded.FormatVersion);
         Assert.Equal(original.PageDimensions, loaded.PageDimensions);
+        Assert.Equal(original.MediaKind, loaded.MediaKind);
         Assert.Equal(original.MediaProfileId, loaded.MediaProfileId);
         Assert.Equal(original.PrintDefaults, loaded.PrintDefaults);
         Assert.Equal(original.Elements.Count, loaded.Elements.Count);
@@ -90,6 +99,11 @@ public class DocumentPackageTests
         TextElement loadText = (TextElement)loaded.Elements[2];
         Assert.Equal(origText.Text, loadText.Text);
         Assert.Equal(origText.FontSizePoints, loadText.FontSizePoints);
+        Assert.Equal(origText.FrameSizing, loadText.FrameSizing);
+        Assert.Equal(origText.Wrapping, loadText.Wrapping);
+        Assert.Equal(origText.Overflow, loadText.Overflow);
+        Assert.Equal(origText.HorizontalAlignment, loadText.HorizontalAlignment);
+        Assert.Equal(origText.VerticalAlignment, loadText.VerticalAlignment);
 
         ImageElement origImg = (ImageElement)original.Elements[3];
         ImageElement loadImg = (ImageElement)loaded.Elements[3];
@@ -104,6 +118,7 @@ public class DocumentPackageTests
         Assert.Equal(new Micrometre(12500), loaded.DesignMetadata.Guides[0].Position);
         Assert.Equal(new Micrometre(2000), loaded.DesignMetadata.Grid.XSpacing);
         Assert.Equal(new MicrometrePoint(new(100), new(200)), loaded.DesignMetadata.Grid.Origin);
+        Assert.Equal(original.DesignMetadata.SafeMargins, loaded.DesignMetadata.SafeMargins);
     }
 
     [Fact]
@@ -178,7 +193,7 @@ public class DocumentPackageTests
     }
 
     [Fact]
-    public void Load_V1Package_AutomaticallyMigratesToV2()
+    public void Load_V1Package_AutomaticallyMigratesToCurrentVersion()
     {
         string path = GetTempPath();
         string json = """
@@ -201,9 +216,12 @@ public class DocumentPackageTests
 
         LabelDocument loaded = DocumentPackage.Load(path);
 
-        Assert.Equal(2, loaded.FormatVersion);
+        Assert.Equal(LabelDocument.CurrentFormatVersion, loaded.FormatVersion);
         Assert.Empty(loaded.DesignMetadata.Groups);
         Assert.Equal(DocumentGridGeometry.Default, loaded.DesignMetadata.Grid);
+        Assert.Equal(DocumentMediaKind.Continuous, loaded.MediaKind);
+        Assert.Equal(new Micrometre(48_260), loaded.PageDimensions.Height);
+        Assert.Equal(DocumentSafeMargins.Uniform(new Micrometre(1_000)), loaded.DesignMetadata.SafeMargins);
         Assert.True(loaded.Elements[0].IsVisible);
         Assert.True(((ImageElement)loaded.Elements[0]).LockAspectRatio);
     }

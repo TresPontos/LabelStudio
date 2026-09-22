@@ -42,7 +42,10 @@ public sealed class DragTransaction
         _currentBounds[elementId] = newBounds;
     }
 
-    public IEditorCommand? Commit(LabelDocument document, IReadOnlyDictionary<string, MicrometreRect>? previewBounds = null)
+    public IEditorCommand? Commit(
+        LabelDocument document,
+        IReadOnlyDictionary<string, MicrometreRect>? previewBounds = null,
+        bool setTextFrameFixed = false)
     {
         if (!_active) return null;
         _active = false;
@@ -57,7 +60,12 @@ public sealed class DragTransaction
             if (_beforeBounds.TryGetValue(entry.Key, out MicrometreRect oldBounds) && oldBounds != entry.Value)
             {
                 DocumentElement before = _beforeElements[entry.Key];
-                replacements.Add((before, ElementFactory.WithBounds(before, entry.Value)));
+                DocumentElement after = ElementFactory.WithBounds(before, entry.Value);
+                if (setTextFrameFixed && after is TextElement text)
+                {
+                    after = text with { FrameSizing = TextFrameSizingMode.Fixed };
+                }
+                replacements.Add((before, after));
             }
         }
 

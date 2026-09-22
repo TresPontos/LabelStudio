@@ -194,7 +194,8 @@
         "type": "Project",
         "dependencies": {
           "LabelStudio.Document": "[1.0.0, )",
-          "LabelStudio.Layout": "[1.0.0, )"
+          "LabelStudio.Layout": "[1.0.0, )",
+          "SkiaSharp": "[3.119.0, )"
         }
       },
       "labelstudio.storage": {

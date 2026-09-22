@@ -22,6 +22,7 @@ internal static class DocumentJsonSerializer
             ["formatVersion"] = document.FormatVersion,
             ["id"] = document.Id.ToString(),
             ["pageDimensions"] = SerializePhysicalSize(document.PageDimensions),
+            ["mediaKind"] = LowerCamel(document.MediaKind),
             ["mediaProfileId"] = document.MediaProfileId,
             ["mediaGeometry"] = SerializeMediaSnapshot(document.MediaGeometry),
             ["printDefaults"] = SerializePrintDefaults(document.PrintDefaults),
@@ -44,6 +45,7 @@ internal static class DocumentJsonSerializer
             ?? throw new InvalidDataException("Missing document id."));
 
         PhysicalSize pageDimensions = DeserializePhysicalSize(root["pageDimensions"]?.AsObject());
+        DocumentMediaKind mediaKind = ReadEnum(root, "mediaKind", DocumentMediaKind.DieCut);
         string mediaProfileId = root["mediaProfileId"]?.GetValue<string>()
             ?? throw new InvalidDataException("Missing mediaProfileId.");
         MediaSnapshot mediaGeometry = DeserializeMediaSnapshot(root["mediaGeometry"]?.AsObject());
@@ -67,6 +69,7 @@ internal static class DocumentJsonSerializer
             id,
             formatVersion,
             pageDimensions,
+            mediaKind,
             mediaProfileId,
             mediaGeometry,
             elements.AsReadOnly(),
@@ -155,6 +158,13 @@ internal static class DocumentJsonSerializer
             ["origin"] = SerializePoint(metadata.Grid.Origin),
             ["majorInterval"] = metadata.Grid.MajorInterval,
         },
+        ["safeMargins"] = new JsonObject
+        {
+            ["top"] = metadata.SafeMargins.Top.Value,
+            ["right"] = metadata.SafeMargins.Right.Value,
+            ["bottom"] = metadata.SafeMargins.Bottom.Value,
+            ["left"] = metadata.SafeMargins.Left.Value,
+        },
     };
 
     private static DocumentDesignMetadata DeserializeDesignMetadata(JsonObject? obj)
@@ -199,9 +209,18 @@ internal static class DocumentJsonSerializer
                 new Micrometre(grid["xSpacing"]?.GetValue<int>() ?? DocumentGridGeometry.Default.XSpacing.Value),
                 new Micrometre(grid["ySpacing"]?.GetValue<int>() ?? DocumentGridGeometry.Default.YSpacing.Value),
                 DeserializePoint(grid["origin"]?.AsObject()),
-                grid["majorInterval"]?.GetValue<int>() ?? DocumentGridGeometry.Default.MajorInterval);
+                 grid["majorInterval"]?.GetValue<int>() ?? DocumentGridGeometry.Default.MajorInterval);
 
-        return new DocumentDesignMetadata(groups.AsReadOnly(), guides.AsReadOnly(), gridGeometry);
+        JsonObject? margins = obj["safeMargins"]?.AsObject();
+        DocumentSafeMargins safeMargins = margins is null
+            ? DocumentSafeMargins.Uniform(Micrometre.FromMillimetres(2))
+            : new DocumentSafeMargins(
+                new Micrometre(margins["top"]?.GetValue<int>() ?? 0),
+                new Micrometre(margins["right"]?.GetValue<int>() ?? 0),
+                new Micrometre(margins["bottom"]?.GetValue<int>() ?? 0),
+                new Micrometre(margins["left"]?.GetValue<int>() ?? 0));
+
+        return new DocumentDesignMetadata(groups.AsReadOnly(), guides.AsReadOnly(), gridGeometry, safeMargins);
     }
 
     private static JsonObject SerializeRect(MicrometreRect rect) => new()
@@ -255,6 +274,11 @@ internal static class DocumentJsonSerializer
                 obj["text"] = text.Text;
                 obj["fontSizePoints"] = text.FontSizePoints;
                 obj["fontFamily"] = text.FontFamily;
+                obj["frameSizing"] = LowerCamel(text.FrameSizing);
+                obj["wrapping"] = LowerCamel(text.Wrapping);
+                obj["overflow"] = LowerCamel(text.Overflow);
+                obj["horizontalAlignment"] = LowerCamel(text.HorizontalAlignment);
+                obj["verticalAlignment"] = LowerCamel(text.VerticalAlignment);
                 break;
         }
 
@@ -291,7 +315,14 @@ internal static class DocumentJsonSerializer
                 id, bounds, ink,
                 obj["text"]?.GetValue<string>() ?? "",
                 obj["fontSizePoints"]?.GetValue<int>() ?? 12,
-                obj["fontFamily"]?.GetValue<string>()),
+                obj["fontFamily"]?.GetValue<string>())
+            {
+                FrameSizing = ReadEnum(obj, "frameSizing", TextFrameSizingMode.Fixed),
+                Wrapping = ReadEnum(obj, "wrapping", TextWrappingMode.NoWrap),
+                Overflow = ReadEnum(obj, "overflow", TextOverflowMode.Clip),
+                HorizontalAlignment = ReadEnum(obj, "horizontalAlignment", TextHorizontalAlignment.Left),
+                VerticalAlignment = ReadEnum(obj, "verticalAlignment", TextVerticalAlignment.Top),
+            },
             _ => throw new InvalidDataException($"Unknown element type: {type}"),
         };
 
@@ -316,5 +347,22 @@ internal static class DocumentJsonSerializer
         return new MicrometrePoint(
             new Micrometre(obj["x"]?.GetValue<int>() ?? 0),
             new Micrometre(obj["y"]?.GetValue<int>() ?? 0));
+    }
+
+    private static string LowerCamel<T>(T value) where T : struct, Enum
+    {
+        string text = value.ToString();
+        return char.ToLowerInvariant(text[0]) + text[1..];
+    }
+
+    private static T ReadEnum<T>(JsonObject obj, string propertyName, T fallback) where T : struct, Enum
+    {
+        JsonNode? node = obj[propertyName];
+        if (node is null) return fallback;
+
+        string value = node.GetValue<string>();
+        return Enum.TryParse(value, true, out T parsed)
+            ? parsed
+            : throw new InvalidDataException($"Invalid {propertyName} value '{value}'.");
     }
 }

@@ -1,6 +1,7 @@
 using LabelStudio.Document;
 using LabelStudio.Editor.Commands;
 using LabelStudio.Editor.Selection;
+using LabelStudio.Editor.Snapping;
 
 namespace LabelStudio.Editor;
 
@@ -21,6 +22,11 @@ public sealed class EditorState
     public DragTransaction Drag { get; } = new();
     public EditorTool ActiveTool { get; set; } = EditorTool.Select;
     public CanvasTransform ViewTransform { get; } = new();
+    public bool SnapEnabled { get; set; } = true;
+    public SnapSources SnapSources { get; set; } = SnapSources.All;
+    public bool ShowGrid { get; set; } = true;
+    public bool ShowPrintLimits { get; set; } = true;
+    public bool ShowSafeArea { get; set; }
 
     public const double ScreenHitToleranceDip = 7.0;
     public const int NudgeSmallMicrometres = 100;

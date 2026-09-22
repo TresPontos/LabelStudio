@@ -9,13 +9,15 @@ public class LabelDocumentTests
     [Fact]
     public void Create_AssignsNewIdAndCurrentVersion()
     {
-        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 0);
+        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 48.26);
         MediaSnapshot snap = new("brother.dk-22251", dims, MicrometreRect.Zero);
-        LabelDocument doc = LabelDocument.Create(dims, "brother.dk-22251", snap);
+        LabelDocument doc = LabelDocument.Create(
+            dims, "brother.dk-22251", snap, mediaKind: DocumentMediaKind.Continuous);
 
         Assert.NotEqual(Guid.Empty, doc.Id.Value);
-        Assert.Equal(2, doc.FormatVersion);
+        Assert.Equal(LabelDocument.CurrentFormatVersion, doc.FormatVersion);
         Assert.Equal(dims, doc.PageDimensions);
+        Assert.Equal(DocumentMediaKind.Continuous, doc.MediaKind);
         Assert.Equal("brother.dk-22251", doc.MediaProfileId);
         Assert.Empty(doc.Elements);
         Assert.Empty(doc.DesignMetadata.Groups);
@@ -24,6 +26,7 @@ public class LabelDocumentTests
         Assert.Equal(new Micrometre(1000), doc.DesignMetadata.Grid.YSpacing);
         Assert.Equal(MicrometrePoint.Zero, doc.DesignMetadata.Grid.Origin);
         Assert.Equal(10, doc.DesignMetadata.Grid.MajorInterval);
+        Assert.Equal(DocumentSafeMargins.Uniform(new Micrometre(1000)), doc.DesignMetadata.SafeMargins);
     }
 
     [Fact]
@@ -86,13 +89,19 @@ public class LabelDocumentTests
     }
 
     [Fact]
-    public void PhysicalSize_IsContinuous_WhenHeightIsZero()
+    public void SafeArea_IsOneMillimetreInsidePrintableLimitsByDefault()
     {
-        PhysicalSize continuous = PhysicalSize.FromMillimetres(62.0, 0);
-        Assert.True(continuous.IsContinuous);
+        PhysicalSize dimensions = PhysicalSize.FromMillimetres(62, 48.26);
+        MicrometreRect printable = new(new(1_500), new(2_963), new(58_900), new(42_334));
+        LabelDocument document = LabelDocument.Create(
+            dimensions,
+            "brother.dk-22251",
+            new MediaSnapshot("brother.dk-22251", dimensions, printable),
+            mediaKind: DocumentMediaKind.Continuous);
 
-        PhysicalSize dieCut = PhysicalSize.FromMillimetres(17.0, 54.0);
-        Assert.False(dieCut.IsContinuous);
+        Assert.Equal(
+            new MicrometreRect(new(2_500), new(3_963), new(56_900), new(40_334)),
+            DocumentPrintableGeometry.GetSafeArea(document));
     }
 
     [Fact]

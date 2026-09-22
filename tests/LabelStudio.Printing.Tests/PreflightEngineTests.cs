@@ -11,10 +11,11 @@ public class PreflightEngineTests
 {
     private static (LabelDocument doc, PreparedScene scene) CreateContinuous(params DocumentElement[] elements)
     {
-        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 0);
+        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 48.26);
         MediaSnapshot snap = new("brother.dk-22251", dims,
             new MicrometreRect(new(1500), new(0), new(58_900), new(0)));
-        LabelDocument doc = LabelDocument.Create(dims, "brother.dk-22251", snap, elements);
+        LabelDocument doc = LabelDocument.Create(
+            dims, "brother.dk-22251", snap, elements, mediaKind: DocumentMediaKind.Continuous);
         PreparedScene scene = new LayoutEngine().Prepare(doc);
         return (doc, scene);
     }
@@ -83,9 +84,10 @@ public class PreflightEngineTests
     [Fact]
     public void DimensionMismatch_Fails()
     {
-        PhysicalSize wrongDims = PhysicalSize.FromMillimetres(50.0, 0);
+        PhysicalSize wrongDims = PhysicalSize.FromMillimetres(50.0, 48.26);
         MediaSnapshot wrongSnap = new("brother.dk-22251", wrongDims, MicrometreRect.Zero);
-        LabelDocument doc = LabelDocument.Create(wrongDims, "brother.dk-22251", wrongSnap);
+        LabelDocument doc = LabelDocument.Create(
+            wrongDims, "brother.dk-22251", wrongSnap, mediaKind: DocumentMediaKind.Continuous);
         PreparedScene scene = new LayoutEngine().Prepare(doc);
         MediaProfile media = MediaCatalog.CreateBuiltIn().Get("brother.dk-22251");
 
@@ -105,6 +107,18 @@ public class PreflightEngineTests
         PreflightResult result = new PreflightEngine().Check(doc, scene, media, badDpi);
 
         Assert.False(result.CanPrint);
+        Assert.Contains(result.Errors, e => e.Code == "INVALID_RESOLUTION");
+    }
+
+    [Fact]
+    public void AsymmetricDeviceResolutionCannotBeRepresentedByScalarDpi()
+    {
+        var (doc, scene) = CreateContinuous();
+        MediaProfile media = MediaCatalog.CreateBuiltIn().Get("brother.dk-22251");
+        PrintSettings unsupported = new(InkChannel.Black, true, true, 600);
+
+        PreflightResult result = new PreflightEngine().Check(doc, scene, media, unsupported);
+
         Assert.Contains(result.Errors, e => e.Code == "INVALID_RESOLUTION");
     }
 
@@ -137,5 +151,62 @@ public class PreflightEngineTests
 
         Assert.True(result.CanPrint);
         Assert.DoesNotContain(result.Errors, issue => issue.ElementId == hiddenRed.Id);
+    }
+
+    [Fact]
+    public void RotatedElement_PreflightUsesVisualBounds()
+    {
+        TextElement rotated = new(
+            "rotated",
+            new MicrometreRect(new(16_000), new(10_000), new(2_000), new(10_000)),
+            InkChannel.Black,
+            "Text",
+            12,
+            null)
+        {
+            RotationMillidegrees = 90_000,
+        };
+        var (doc, scene) = CreateDieCut(rotated);
+        MediaProfile media = MediaCatalog.CreateBuiltIn().Get("brother.dk-11204");
+
+        PreflightResult result = new PreflightEngine().Check(doc, scene, media, PrintSettings.Default);
+
+        Assert.DoesNotContain(result.Errors, issue => issue.Code == "ELEMENT_OUTSIDE_PRINTABLE");
+    }
+
+    [Theory]
+    [InlineData(12_699)]
+    [InlineData(1_000_001)]
+    public void ContinuousLengthOutsideCutterConstraints_Fails(int lengthMicrometres)
+    {
+        var (document, _) = CreateContinuous();
+        document = document with
+        {
+            PageDimensions = new PhysicalSize(document.PageDimensions.Width, new Micrometre(lengthMicrometres)),
+        };
+        PreparedScene scene = new LayoutEngine().Prepare(document);
+
+        PreflightResult result = new PreflightEngine().Check(
+            document,
+            scene,
+            MediaCatalog.CreateBuiltIn().Get("brother.dk-22251"),
+            PrintSettings.Default);
+
+        Assert.Contains(result.Errors, issue => issue.Code == "CONTINUOUS_LENGTH");
+    }
+
+    [Fact]
+    public void DocumentAndProfileMediaKindMismatch_Fails()
+    {
+        var (document, scene) = CreateContinuous();
+        document = document with { MediaKind = DocumentMediaKind.DieCut };
+
+        PreflightResult result = new PreflightEngine().Check(
+            document,
+            scene,
+            MediaCatalog.CreateBuiltIn().Get("brother.dk-22251"),
+            PrintSettings.Default);
+
+        Assert.Contains(result.Errors, issue => issue.Code == "MEDIA_KIND_MISMATCH");
     }
 }

@@ -7,21 +7,31 @@ public sealed record DocumentDesignMetadata
     public DocumentDesignMetadata(
         IEnumerable<ElementGroup> groups,
         IEnumerable<DocumentGuide> guides,
-        DocumentGridGeometry grid)
+        DocumentGridGeometry grid,
+        DocumentSafeMargins? safeMargins = null)
     {
         Groups = groups.ToList().AsReadOnly();
         Guides = guides.ToList().AsReadOnly();
         Grid = grid;
+        SafeMargins = safeMargins ?? DocumentSafeMargins.Default;
     }
 
     public IReadOnlyList<ElementGroup> Groups { get; }
     public IReadOnlyList<DocumentGuide> Guides { get; }
     public DocumentGridGeometry Grid { get; }
+    public DocumentSafeMargins SafeMargins { get; }
 
     public static DocumentDesignMetadata Default { get; } = new(
         Array.Empty<ElementGroup>(),
         Array.Empty<DocumentGuide>(),
-        DocumentGridGeometry.Default);
+        DocumentGridGeometry.Default,
+        DocumentSafeMargins.Default);
+
+    public static DocumentDesignMetadata CreateDefault(PhysicalSize pageDimensions) => new(
+        Array.Empty<ElementGroup>(),
+        Array.Empty<DocumentGuide>(),
+        DocumentGridGeometry.Default,
+        DocumentSafeMargins.Default);
 }
 
 public sealed record ElementGroup

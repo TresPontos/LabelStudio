@@ -7,12 +7,13 @@ public sealed class DocumentSession
 {
     private LabelDocument _document;
     private string? _filePath;
+    private bool _hasTransientChanges;
 
     public LabelDocument Document => _document;
     public string? FilePath => _filePath;
     public CommandHistory History { get; } = new();
 
-    public bool IsDirty => History.IsDirty;
+    public bool IsDirty => History.IsDirty || _hasTransientChanges;
 
     public event EventHandler? DocumentChanged;
     public event EventHandler? DirtyChanged;
@@ -26,6 +27,7 @@ public sealed class DocumentSession
     {
         _document = document;
         _filePath = filePath;
+        _hasTransientChanges = false;
         History.Clear();
         if (filePath is not null)
         {
@@ -41,6 +43,22 @@ public sealed class DocumentSession
         DocumentChanged?.Invoke(this, EventArgs.Empty);
         DirtyChanged?.Invoke(this, EventArgs.Empty);
         return _document;
+    }
+
+    public LabelDocument UpdateTransient(Func<LabelDocument, LabelDocument> update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        _document = update(_document);
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
+        return _document;
+    }
+
+    public void SetTransientDirty(bool isDirty)
+    {
+        if (_hasTransientChanges == isDirty) return;
+
+        _hasTransientChanges = isDirty;
+        DirtyChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void Undo()

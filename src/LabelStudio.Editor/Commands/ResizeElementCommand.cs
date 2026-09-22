@@ -33,8 +33,13 @@ public sealed class ResizeElementCommand : IEditorCommand
     {
         ReplaceElementsCommand.EnsureUniqueTargets(document, [_elementId]);
         DocumentElement? before = document.Elements.FirstOrDefault(element => element.Id == _elementId);
-        return before is null
-            ? new ReplaceElementsCommand([])
-            : new ReplaceElementsCommand([(before, ElementFactory.WithBounds(before, _newBounds))]);
+        if (before is null) return new ReplaceElementsCommand([]);
+
+        DocumentElement resized = ElementFactory.WithBounds(before, _newBounds);
+        if (resized is TextElement text)
+        {
+            resized = text with { FrameSizing = TextFrameSizingMode.Fixed };
+        }
+        return new ReplaceElementsCommand([(before, resized)]);
     }
 }

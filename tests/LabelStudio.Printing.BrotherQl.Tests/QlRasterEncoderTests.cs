@@ -10,6 +10,41 @@ public class QlRasterEncoderTests
     private static MediaProfile Dk11204 => MediaCatalog.CreateBuiltIn().Get("brother.dk-11204");
 
     [Fact]
+    public void ContinuousLengthPlanner_UsesMappingFeedMargin()
+    {
+        BrotherQlMediaMapping mapping = BrotherQlMediaMapping.Dk22251() with
+        {
+            MinimumFeedMarginDots = 40,
+        };
+
+        QlContinuousLengthPlan plan = QlContinuousLengthPlanner.Plan(new(48_260), mapping);
+
+        Assert.Equal(570, plan.LengthDots);
+        Assert.Equal(40, plan.FeedMarginDots);
+        Assert.Equal(490, plan.RasterRows);
+    }
+
+    [Fact]
+    public void ContinuousLengthPlanner_DefaultCutLengthProducesDesktopReadyPlan()
+    {
+        QlContinuousLengthPlan plan = QlContinuousLengthPlanner.Plan(
+            new(48_260), BrotherQlMediaMapping.Dk22251());
+
+        Assert.Equal(35, plan.FeedMarginDots);
+        Assert.Equal(500, plan.RasterRows);
+    }
+
+    [Fact]
+    public void ContinuousLengthPlanner_AcceptsMediaMinimumCutLength()
+    {
+        QlContinuousLengthPlan plan = QlContinuousLengthPlanner.Plan(
+            new(12_700), BrotherQlMediaMapping.Dk22251());
+
+        Assert.Equal(150, plan.LengthDots);
+        Assert.Equal(80, plan.RasterRows);
+    }
+
+    [Fact]
     public void TransformPhysicalRowToProtocol_MirrorsFull720DotRow()
     {
         byte[] physicalRow = new byte[90];
@@ -135,6 +170,19 @@ public class QlRasterEncoderTests
         QlRasterJobOptions options = new(Dk11204, mapping, black, null, 35);
 
         Assert.Throws<ArgumentException>(() => new QlRasterEncoder().Encode(options));
+    }
+
+    [Fact]
+    public void Encode_DK11204_WithRedPlane_ThrowsBeforeSubmission()
+    {
+        MonochromeRaster black = new(720, 566);
+        MonochromeRaster red = new(720, 566);
+        BrotherQlMediaMapping mapping = BrotherQlMediaMapping.Dk11204();
+        QlRasterJobOptions options = new(Dk11204, mapping, black, red, 0);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(() => new QlRasterEncoder().Encode(options));
+
+        Assert.Contains("does not support a red raster plane", error.Message);
     }
 
     [Fact]

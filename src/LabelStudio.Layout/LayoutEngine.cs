@@ -23,7 +23,7 @@ public sealed class LayoutEngine
 
         return new PreparedScene(
             document.PageDimensions,
-            document.MediaGeometry.PrintableArea,
+            DocumentPrintableGeometry.GetMediaPrintableArea(document),
             prepared.AsReadOnly());
     }
 
@@ -45,7 +45,17 @@ public sealed class LayoutEngine
             ImageElement img => new PreparedElement(
                 img.Id, img.Bounds, img.Ink, PreparedContent.Image(img.AssetId)),
             TextElement text => new PreparedElement(
-                text.Id, text.Bounds, text.Ink, PreparedContent.Text(text.Text)),
+                text.Id, text.Bounds, text.Ink, PreparedContent.Text(text.Text))
+            {
+                TextFontSizePoints = text.FontSizePoints,
+                TextFontFamily = text.FontFamily,
+                RotationMillidegrees = text.RotationMillidegrees,
+                TextFrameSizing = text.FrameSizing,
+                TextWrapping = text.Wrapping,
+                TextOverflow = text.Overflow,
+                TextHorizontalAlignment = text.HorizontalAlignment,
+                TextVerticalAlignment = text.VerticalAlignment,
+            },
             _ => throw new NotSupportedException($"Element type {element.GetType().Name} is not supported."),
         };
     }

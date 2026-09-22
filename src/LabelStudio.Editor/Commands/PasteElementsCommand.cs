@@ -50,7 +50,8 @@ public sealed class PasteElementsCommand : IEditorCommand
     {
         List<DocumentElement> elements = [.. document.Elements, .. _newElements];
         List<ElementGroup> groups = [.. document.DesignMetadata.Groups, .. _newGroups];
-        DocumentDesignMetadata metadata = new(groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid);
+        DocumentDesignMetadata metadata = new(
+            groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid, document.DesignMetadata.SafeMargins);
         return document with { Elements = elements.AsReadOnly(), DesignMetadata = metadata };
     }
 
@@ -64,7 +65,8 @@ public sealed class PasteElementsCommand : IEditorCommand
             .Where(g => !pastedGroupIds.Contains(g.Id))
             .ToList();
 
-        DocumentDesignMetadata metadata = new(groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid);
+        DocumentDesignMetadata metadata = new(
+            groups, document.DesignMetadata.Guides, document.DesignMetadata.Grid, document.DesignMetadata.SafeMargins);
         return document with { Elements = elements.AsReadOnly(), DesignMetadata = metadata };
     }
 }

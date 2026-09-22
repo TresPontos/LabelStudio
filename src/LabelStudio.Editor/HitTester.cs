@@ -1,5 +1,6 @@
 using LabelStudio.Document;
 using LabelStudio.Document.Elements;
+using LabelStudio.Document.Geometry;
 using LabelStudio.Document.Units;
 
 namespace LabelStudio.Editor;
@@ -58,6 +59,12 @@ public static class HitTester
 
     public static bool HitTestElement(DocumentElement element, MicrometrePoint point, Micrometre tolerance)
     {
+        if (element.RotationMillidegrees != 0)
+        {
+            point = ElementGeometry.RoundPoint(
+                ElementGeometry.InverseRotatePoint(point, element.Bounds, element.RotationMillidegrees));
+        }
+
         return element switch
         {
             LineElement line => HitTestLine(line, point, tolerance),

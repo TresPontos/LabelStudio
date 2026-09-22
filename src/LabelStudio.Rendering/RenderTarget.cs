@@ -12,7 +12,9 @@ public sealed record RenderTarget(
     int PrintableWidthDots,
     IReadOnlyList<InkOutputChannel> OutputChannels)
 {
-    public bool SupportsRedPlane => OutputChannels.Count > 1;
+    public bool SupportsRedPlane => OutputChannels.Any(channel => channel.IsRed);
+    public Micrometre DocumentOriginX { get; init; } = Micrometre.Zero;
+    public Micrometre DocumentOriginY { get; init; } = Micrometre.Zero;
 }
 
 public sealed record InkOutputChannel(string Name, bool IsRed);

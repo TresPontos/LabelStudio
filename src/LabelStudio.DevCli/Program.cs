@@ -36,9 +36,17 @@ internal static class Program
     private static int CreateSample(string[] args)
     {
         string path = args.Length > 0 ? args[0] : "sample.label";
-        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 0);
+        PhysicalSize dims = PhysicalSize.FromMillimetres(62.0, 48.26);
+        BrotherQlMediaMapping mapping = BrotherQlMediaMapping.Dk22251();
+        Micrometre feedMargin = new(PhysicalUnits.DotsToMicrometres(
+            mapping.MinimumFeedMarginDots,
+            QlContinuousLengthPlanner.Dpi));
         MediaSnapshot snap = new("brother.dk-22251", dims,
-            new MicrometreRect(new(1500), new(0), new(58900), new(0)));
+            new MicrometreRect(
+                new(1500),
+                feedMargin,
+                new(58_900),
+                new(dims.Height.Value - (2 * feedMargin.Value))));
 
         List<DocumentElement> elements =
         [
@@ -53,7 +61,8 @@ internal static class Program
                 InkChannel.Black, "LABEL STUDIO", 24, null),
         ];
 
-        LabelDocument doc = LabelDocument.Create(dims, "brother.dk-22251", snap, elements);
+        LabelDocument doc = LabelDocument.Create(
+            dims, "brother.dk-22251", snap, elements, mediaKind: DocumentMediaKind.Continuous);
         DocumentPackage.Save(doc, path);
         Console.WriteLine($"Created: {Path.GetFullPath(path)}");
         Console.WriteLine($"  Id: {doc.Id}");
@@ -101,14 +110,7 @@ internal static class Program
         PreparedScene scene = new LayoutEngine().Prepare(doc);
         MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
         MediaProfile media = catalog.Get(doc.MediaProfileId);
-
-        RenderTarget target = new(
-            doc.PrintDefaults.Dpi, doc.PrintDefaults.Dpi,
-            720, 500,
-            doc.MediaGeometry.PrintableArea,
-            media.Kind == MediaKind.DieCut ? 555 : 12,
-            media.Kind == MediaKind.DieCut ? 165 : 696,
-            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)]);
+        RenderTarget target = CreateRenderTarget(doc, media, doc.PrintDefaults.Dpi);
 
         RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
         RasterDump.Dump(planes, outputDir);
@@ -149,13 +151,7 @@ internal static class Program
             return 1;
         }
 
-        RenderTarget target = new(
-            settings.Dpi, settings.Dpi,
-            720, 500,
-            doc.MediaGeometry.PrintableArea,
-            media.Kind == MediaKind.DieCut ? 555 : 12,
-            media.Kind == MediaKind.DieCut ? 165 : 696,
-            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)]);
+        RenderTarget target = CreateRenderTarget(doc, media, settings.Dpi);
 
         RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
         PrintIntent intent = new(doc.Id, scene, media, settings);
@@ -168,6 +164,35 @@ internal static class Program
             ? $"Mock print succeeded: {Path.GetFullPath(outputDir)}"
             : $"Mock print FAILED: {result.Error}");
         return result.Success ? 0 : 1;
+    }
+
+    private static RenderTarget CreateRenderTarget(LabelDocument document, MediaProfile media, int dpi)
+    {
+        if (dpi != QlContinuousLengthPlanner.Dpi)
+        {
+            throw new ArgumentException(
+                $"QL rendering requires {QlContinuousLengthPlanner.Dpi} DPI, got {dpi} DPI.",
+                nameof(dpi));
+        }
+
+        BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(media.ProfileId);
+        int rasterHeight = media.Kind == MediaKind.DieCut
+            ? mapping.PrintableLengthDots
+            : QlContinuousLengthPlanner.Plan(document.PageDimensions.Height, mapping).RasterRows;
+        MicrometreRect printable = DocumentPrintableGeometry.GetMediaPrintableArea(document);
+        return new RenderTarget(
+            dpi,
+            dpi,
+            720,
+            rasterHeight,
+            printable,
+            mapping.HeadLeftBlankDots,
+            mapping.PrintableWidthDots,
+            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)])
+        {
+            DocumentOriginX = printable.X,
+            DocumentOriginY = printable.Y,
+        };
     }
 
     private static int Print(string[] args)

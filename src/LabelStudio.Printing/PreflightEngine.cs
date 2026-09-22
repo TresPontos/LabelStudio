@@ -1,4 +1,5 @@
 using LabelStudio.Document;
+using LabelStudio.Document.Geometry;
 using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Layout;
@@ -27,7 +28,21 @@ public sealed class PreflightEngine
     {
         PhysicalSize dims = document.PageDimensions;
 
-        if (media.Kind == MediaKind.Continuous)
+        if (dims.Width <= Micrometre.Zero || dims.Height <= Micrometre.Zero)
+        {
+            errors.Add(new(PreflightSeverity.Error, "PAGE_BOUNDS_INVALID",
+                "Document width and length must be finite and positive."));
+        }
+
+        bool documentIsContinuous = document.MediaKind == DocumentMediaKind.Continuous;
+        bool profileIsContinuous = media.Kind == MediaKind.Continuous;
+        if (documentIsContinuous != profileIsContinuous)
+        {
+            errors.Add(new(PreflightSeverity.Error, "MEDIA_KIND_MISMATCH",
+                $"Document media kind {document.MediaKind} does not match profile media kind {media.Kind}."));
+        }
+
+        if (profileIsContinuous)
         {
             if (dims.Width.Value != media.PhysicalWidthMicrometres)
             {
@@ -35,10 +50,16 @@ public sealed class PreflightEngine
                     $"Document width {dims.Width} does not match media width {new Micrometre(media.PhysicalWidthMicrometres)}."));
             }
 
-            if (dims.Height.Value != 0)
+            if (media.Cutter.MinimumContinuousLength is Micrometre minimum && dims.Height < minimum)
             {
-                errors.Add(new(PreflightSeverity.Error, "CONTINUOUS_HEIGHT",
-                    "Continuous media document height must be 0 (variable length)."));
+                errors.Add(new(PreflightSeverity.Error, "CONTINUOUS_LENGTH",
+                    $"Document length {dims.Height} is shorter than the cutter minimum {minimum}."));
+            }
+
+            if (media.Cutter.MaximumContinuousLength is Micrometre maximum && dims.Height > maximum)
+            {
+                errors.Add(new(PreflightSeverity.Error, "CONTINUOUS_LENGTH",
+                    $"Document length {dims.Height} exceeds the cutter maximum {maximum}."));
             }
         }
         else
@@ -74,6 +95,12 @@ public sealed class PreflightEngine
             warnings.Add(new(PreflightSeverity.Warning, "PRINTABLE_AREA_OVERFLOW",
                 $"Printable area extends beyond label width ({printable.Right} > {label.Width})."));
         }
+
+        if (printable.Bottom > label.Height)
+        {
+            warnings.Add(new(PreflightSeverity.Warning, "PRINTABLE_AREA_OVERFLOW",
+                $"Printable area extends beyond label length ({printable.Bottom} > {label.Height})."));
+        }
     }
 
     private static void CheckInkCompatibility(LabelDocument document, MediaProfile media, List<PreflightIssue> errors)
@@ -101,16 +128,12 @@ public sealed class PreflightEngine
 
     private static void CheckResolution(PrintSettings settings, MediaProfile media, List<PreflightIssue> errors)
     {
-        if (settings.Dpi <= 0)
+        // The current render contract has one DPI value for both axes. QL-800's
+        // higher mode is asymmetric (300x600), so only 300x300 is representable.
+        if (settings.Dpi != 300)
         {
             errors.Add(new(PreflightSeverity.Error, "INVALID_RESOLUTION",
-                $"Resolution {settings.Dpi} DPI is invalid."));
-        }
-
-        if (settings.Dpi > 600)
-        {
-            errors.Add(new(PreflightSeverity.Error, "INVALID_RESOLUTION",
-                $"Resolution {settings.Dpi} DPI exceeds maximum supported 600 DPI."));
+                $"Resolution {settings.Dpi} DPI is unsupported; this QL pipeline supports 300 DPI."));
         }
     }
 
@@ -135,7 +158,8 @@ public sealed class PreflightEngine
 
         foreach (PreparedElement element in scene.Elements)
         {
-            MicrometreRect bounds = element.Bounds;
+            MicrometreRect bounds = ElementGeometry.RoundBounds(
+                ElementGeometry.GetVisualBounds(element.Bounds, element.RotationMillidegrees));
 
             if (bounds.X < Micrometre.Zero || bounds.Y < Micrometre.Zero)
             {
@@ -151,7 +175,7 @@ public sealed class PreflightEngine
                     element.SourceElementId));
             }
 
-            if (label.Height > Micrometre.Zero && bounds.Bottom > label.Height)
+            if (bounds.Bottom > label.Height)
             {
                 warnings.Add(new(PreflightSeverity.Warning, "ELEMENT_OUTSIDE_LABEL",
                     $"Element '{element.SourceElementId}' extends beyond the label height ({bounds.Bottom} > {label.Height}).",
@@ -159,8 +183,7 @@ public sealed class PreflightEngine
             }
 
             MicrometreRect printable = scene.PrintableArea;
-            if (label.Height > Micrometre.Zero &&
-                printable.Height > Micrometre.Zero &&
+            if (printable.Height > Micrometre.Zero &&
                 !bounds.Intersects(printable))
             {
                 errors.Add(new(PreflightSeverity.Error, "ELEMENT_OUTSIDE_PRINTABLE",

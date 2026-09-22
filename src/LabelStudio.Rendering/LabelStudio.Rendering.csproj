@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\LabelStudio.Document\LabelStudio.Document.csproj" />
     <ProjectReference Include="..\LabelStudio.Layout\LabelStudio.Layout.csproj" />
   </ItemGroup>

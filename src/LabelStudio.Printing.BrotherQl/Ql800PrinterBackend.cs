@@ -31,10 +31,29 @@ public sealed class Ql800PrinterBackend : IPrinterBackend
     public QlEncodedJob Encode(DevicePrintJob job)
     {
         ArgumentNullException.ThrowIfNull(job);
+        if (job.Settings.Dpi != QlContinuousLengthPlanner.Dpi)
+        {
+            throw new ArgumentException(
+                $"QL raster jobs require {QlContinuousLengthPlanner.Dpi} DPI, got {job.Settings.Dpi} DPI.",
+                nameof(job));
+        }
 
         BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(job.Media.ProfileId);
 
-        int feedMargin = job.Media.Kind == MediaKind.Continuous ? 35 : 0;
+        int feedMargin = 0;
+        if (job.Media.Kind == MediaKind.Continuous)
+        {
+            QlContinuousLengthPlan lengthPlan = QlContinuousLengthPlanner.Plan(
+                job.Intent.Scene.LabelSize.Height,
+                mapping);
+            feedMargin = lengthPlan.FeedMarginDots;
+            if (job.Planes.BlackPlane.Height != lengthPlan.RasterRows)
+            {
+                throw new ArgumentException(
+                    $"Continuous cut length requires {lengthPlan.RasterRows} raster rows, got {job.Planes.BlackPlane.Height}.",
+                    nameof(job));
+            }
+        }
 
         QlRasterJobOptions options = new(
             job.Media,
@@ -67,15 +86,23 @@ public sealed class Ql800PrinterBackend : IPrinterBackend
             return PrintResult.Failed("No transport configured. Use --printer option to specify a queue.");
         }
 
-        QlEncodedJob encoded = Encode(job);
+        try
+        {
+            QlEncodedJob encoded = Encode(job);
+            RawSubmissionResult result = _transport.Submit(
+                _transportTarget,
+                encoded.Payload,
+                CancellationToken.None);
 
-        RawSubmissionResult result = _transport.Submit(
-            _transportTarget,
-            encoded.Payload,
-            CancellationToken.None);
-
-        return result.Success
-            ? PrintResult.Succeeded(result.SpoolerJobId?.ToString())
-            : PrintResult.Failed(result.Error ?? "Unknown transport error.");
+            return result.Success
+                ? PrintResult.Succeeded(result.SpoolerJobId?.ToString())
+                : PrintResult.Failed(result.Error ??
+                    "The raw printer transport returned failure without an error message.");
+        }
+        catch (Exception ex)
+        {
+            return PrintResult.Failed(
+                $"Print pipeline failed ({ex.GetType().Name}): {ex.Message}");
+        }
     }
 }

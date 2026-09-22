@@ -1,6 +1,7 @@
 using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Layout;
+using SkiaSharp;
 
 namespace LabelStudio.Rendering;
 
@@ -29,18 +30,21 @@ public sealed class ThermalTargetRenderer : ITargetRenderer
             RenderElement(plane, element, target);
         }
 
+        black.ClearOutsideHorizontalRange(target.HeadLeftBlankDots, target.PrintableWidthDots);
+        red?.ClearOutsideHorizontalRange(target.HeadLeftBlankDots, target.PrintableWidthDots);
+
         return new RenderedPlanes(black, red);
     }
 
     private static void RenderElement(MonochromeRaster plane, PreparedElement element, RenderTarget target)
     {
         MicrometreRect bounds = element.Bounds;
-        int x = ToDot(bounds.X, target.DpiX) + target.HeadLeftBlankDots;
-        int y = ToDot(bounds.Y, target.DpiY);
+        int x = ToDot(bounds.X - target.DocumentOriginX, target.DpiX) + target.HeadLeftBlankDots;
+        int y = ToDot(bounds.Y - target.DocumentOriginY, target.DpiY);
         int w = ToDot(bounds.Width, target.DpiX);
         int h = ToDot(bounds.Height, target.DpiY);
 
-        if (w <= 0 && h <= 0) return;
+        if (w <= 0 || h <= 0) return;
 
         w = Math.Max(1, w);
         h = Math.Max(1, h);
@@ -77,9 +81,7 @@ public sealed class ThermalTargetRenderer : ITargetRenderer
                 break;
 
             case PreparedContentType.Text:
-                int fontSizeDots = Math.Max(1, ToDot(
-                    new Micrometre(element.Bounds.Height.Value), target.DpiY));
-                DrawSimpleText(plane, element.Content.TextContent ?? "", x, y, w, h, fontSizeDots);
+                DrawText(plane, element, target, x, y, w, h);
                 break;
         }
     }
@@ -87,47 +89,70 @@ public sealed class ThermalTargetRenderer : ITargetRenderer
     private static int ToDot(Micrometre um, int dpi) =>
         PhysicalUnits.MicrometresToDots(um.Value, dpi);
 
-    private static void DrawSimpleText(
-        MonochromeRaster plane, string text, int x, int y, int w, int h, int fontDots)
+    private static void DrawText(
+        MonochromeRaster plane,
+        PreparedElement element,
+        RenderTarget target,
+        int x,
+        int y,
+        int width,
+        int height)
     {
+        string text = element.Content.TextContent ?? string.Empty;
         if (string.IsNullOrEmpty(text)) return;
 
-        int charWidth = Math.Max(3, fontDots / 2);
-        int charHeight = fontDots;
-        int spacing = Math.Max(1, charWidth / 4);
-        int totalWidth = text.Length * (charWidth + spacing);
+        int fontSizePoints = element.TextFontSizePoints > 0 ? element.TextFontSizePoints : 12;
+        float fontSizeDots = Math.Max(1, fontSizePoints * target.DpiY / 72f);
+        TextLayoutResult layout = TextLayoutEngine.Layout(
+            text,
+            element.TextFontFamily,
+            fontSizeDots,
+            target.DpiY / 72f,
+            width,
+            height,
+            element.TextWrapping,
+            element.TextOverflow,
+            element.TextHorizontalAlignment,
+            element.TextVerticalAlignment);
 
-        if (totalWidth > w)
+        using SKBitmap bitmap = new(new SKImageInfo(
+            plane.Width,
+            plane.Height,
+            SKColorType.Alpha8,
+            SKAlphaType.Premul));
+        using SKCanvas canvas = new(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        if (element.RotationMillidegrees != 0)
         {
-            int available = w - charWidth;
-            int charsThatFit = Math.Max(1, available / (charWidth + spacing));
-            text = text[..Math.Min(text.Length, charsThatFit)];
+            canvas.RotateDegrees(
+                element.RotationMillidegrees / 1000f,
+                x + width / 2f,
+                y + height / 2f);
         }
+        canvas.ClipRect(new SKRect(x, y, x + width, y + height));
 
-        int startX = x + Math.Max(0, (w - text.Length * (charWidth + spacing)) / 2);
-        int startY = y + Math.Max(0, (h - charHeight) / 2);
+        using SKTypeface typeface = SKTypeface.FromFamilyName(element.TextFontFamily ?? "Segoe UI")
+            ?? SKTypeface.Default
+            ?? SKTypeface.FromFamilyName(null);
+        using SKFont font = new(typeface, layout.EffectiveFontSizePixels);
+        using SKPaint paint = new() { Color = SKColors.White, IsAntialias = true };
 
-        for (int i = 0; i < text.Length; i++)
+        foreach (TextLayoutLine line in layout.Lines)
         {
-            int cx = startX + i * (charWidth + spacing);
-            DrawSimpleChar(plane, text[i], cx, startY, charWidth, charHeight);
+            canvas.DrawText(line.Text, x + line.X, y + line.Baseline, font, paint);
         }
-    }
+        canvas.Flush();
 
-    private static void DrawSimpleChar(MonochromeRaster plane, char c, int x, int y, int w, int h)
-    {
-        int thickness = Math.Max(1, w / 6);
-
-        if (char.IsLetterOrDigit(c) || c == '-' || c == ' ')
+        for (int py = 0; py < plane.Height; py++)
         {
-            if (c != ' ')
+            for (int px = 0; px < plane.Width; px++)
             {
-                plane.DrawRectangle(x, y, w, h, thickness);
+                if (bitmap.GetPixel(px, py).Alpha >= 128)
+                {
+                    plane.SetPixel(px, py);
+                }
             }
         }
-        else
-        {
-            plane.DrawRectangle(x, y, w, h, thickness);
-        }
     }
+
 }

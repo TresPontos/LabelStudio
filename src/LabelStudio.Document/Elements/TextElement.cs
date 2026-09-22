@@ -13,4 +13,9 @@ public sealed record TextElement(
     : DocumentElement(Id, Bounds, Ink)
 {
     public override string ElementType => "text";
+    public TextFrameSizingMode FrameSizing { get; init; } = TextFrameSizingMode.Fixed;
+    public TextWrappingMode Wrapping { get; init; } = TextWrappingMode.NoWrap;
+    public TextOverflowMode Overflow { get; init; } = TextOverflowMode.Clip;
+    public TextHorizontalAlignment HorizontalAlignment { get; init; } = TextHorizontalAlignment.Left;
+    public TextVerticalAlignment VerticalAlignment { get; init; } = TextVerticalAlignment.Top;
 }

@@ -188,6 +188,11 @@ public static class ClipboardSerializer
                 obj["text"] = text.Text;
                 obj["fontSizePoints"] = text.FontSizePoints;
                 obj["fontFamily"] = text.FontFamily;
+                obj["frameSizing"] = text.FrameSizing.ToString();
+                obj["wrapping"] = text.Wrapping.ToString();
+                obj["overflow"] = text.Overflow.ToString();
+                obj["horizontalAlignment"] = text.HorizontalAlignment.ToString();
+                obj["verticalAlignment"] = text.VerticalAlignment.ToString();
                 break;
         }
 
@@ -224,7 +229,14 @@ public static class ClipboardSerializer
                 id, bounds, ink,
                 obj["text"]?.GetValue<string>() ?? "",
                 obj["fontSizePoints"]?.GetValue<int>() ?? 12,
-                obj["fontFamily"]?.GetValue<string>()),
+                obj["fontFamily"]?.GetValue<string>())
+            {
+                FrameSizing = ReadEnum(obj, "frameSizing", TextFrameSizingMode.Fixed),
+                Wrapping = ReadEnum(obj, "wrapping", TextWrappingMode.NoWrap),
+                Overflow = ReadEnum(obj, "overflow", TextOverflowMode.Clip),
+                HorizontalAlignment = ReadEnum(obj, "horizontalAlignment", TextHorizontalAlignment.Left),
+                VerticalAlignment = ReadEnum(obj, "verticalAlignment", TextVerticalAlignment.Top),
+            },
             _ => throw new InvalidDataException($"Unknown element type: {type}"),
         };
 
@@ -236,6 +248,9 @@ public static class ClipboardSerializer
             RotationMillidegrees = obj["rotationMillidegrees"]?.GetValue<int>() ?? 0,
         };
     }
+
+    private static T ReadEnum<T>(JsonObject obj, string propertyName, T fallback) where T : struct, Enum =>
+        Enum.TryParse(obj[propertyName]?.GetValue<string>(), true, out T parsed) ? parsed : fallback;
 
     private static JsonObject SerializeGroup(ElementGroup group) => new()
     {

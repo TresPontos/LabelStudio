@@ -2,14 +2,19 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 using LabelStudio.Document;
 using LabelStudio.Document.Elements;
+using LabelStudio.Document.Geometry;
 using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
 using LabelStudio.Editor;
 using LabelStudio.Editor.Commands;
 using LabelStudio.Editor.Clipboard;
 using LabelStudio.Editor.Selection;
+using LabelStudio.Editor.Snapping;
 using LabelStudio.Editor.Transforms;
 using LabelStudio.Desktop.Canvas;
 using LabelStudio.Layout;
@@ -30,11 +35,15 @@ public partial class MainWindow : Window
     private CanvasInputHandler _input = null!;
     private readonly SkiaCanvasPainter _painter = new();
     private bool _updatingLayers;
-    private string? _textEditElementId;
-    private string _textEditOriginalText = string.Empty;
+    private TextEditSession _textEditSession = null!;
+    private bool _updatingTextEditOverlay;
+    private string? _newTextEditElementId;
     private readonly SelectionCloneService _cloneService = new();
     private ClipboardPayload? _internalClipboard;
     private Dictionary<string, byte[]>? _documentAssets;
+    private readonly RulerLayoutEngine _rulerLayout = new();
+    private Point? _rulerPointer;
+    private const int DefaultContinuousLengthMicrometres = 100_000;
 
     public MainWindow()
     {
@@ -47,35 +56,58 @@ public partial class MainWindow : Window
         UpdateCommandButtons();
     }
 
-    private void CreateNewDocument(string mediaProfileId)
+    private void CreateNewDocument(string mediaProfileId, int viewRotationDegrees = 0)
     {
         MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
         MediaProfile media = catalog.Get(mediaProfileId);
-
-        PhysicalSize dims = media.Kind == MediaKind.Continuous
-            ? new(new(media.PhysicalWidthMicrometres), Micrometre.Zero)
-            : new(new(media.PhysicalWidthMicrometres), new(media.PhysicalLengthMicrometres ?? 0));
-
-        MicrometreRect printable = media.Kind == MediaKind.Continuous
-            ? new(new(media.PrintableArea.CrossFeedOffset.Value), Micrometre.Zero,
-                  media.PrintableArea.Width, Micrometre.Zero)
-            : new(media.PrintableArea.CrossFeedOffset, media.PrintableArea.FeedOffset,
-                  media.PrintableArea.Width,
-                  media.PrintableArea.Length.HasValue ? media.PrintableArea.Length.Value : Micrometre.Zero);
-
-        MediaSnapshot snap = new(mediaProfileId, dims, printable);
-        LabelDocument doc = LabelDocument.Create(dims, mediaProfileId, snap);
+        (PhysicalSize dims, MediaSnapshot snap) = CreateMediaGeometry(media, null);
+        DocumentMediaKind mediaKind = media.Kind == MediaKind.Continuous
+            ? DocumentMediaKind.Continuous
+            : DocumentMediaKind.DieCut;
+        LabelDocument doc = LabelDocument.Create(dims, mediaProfileId, snap, mediaKind: mediaKind);
 
         _editor = new EditorState(doc);
         _input = new CanvasInputHandler(_editor, _painter, InvalidateCanvas);
-        _editor.Session.DocumentChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); UpdateLayers(); UpdateTitle(); };
+        _textEditSession = new TextEditSession(_editor.Session, TextLayoutEngine.ResolveAutomaticFrame);
+        _input.TextElementCreated += text => BeginTextEdit(text, isNew: true);
+        _input.InteractionChanged += () =>
+        {
+            UpdatePhysicalStatus();
+            RedrawRulers();
+        };
+        _editor.Session.DocumentChanged += (_, _) =>
+        {
+            InvalidateCanvas();
+            UpdateInspector();
+            UpdateLayers();
+            UpdateTitle();
+            UpdateTextEditOverlayPosition();
+            _editor.ViewTransform.SetContentSize(
+                _editor.Session.Document.PageDimensions.Width,
+                _editor.Session.Document.PageDimensions.Height);
+            UpdatePhysicalStatus();
+            UpdateSnapControls();
+            RedrawRulers();
+        };
         _editor.Session.DirtyChanged += (_, _) => { UpdateTitle(); UpdateCommandButtons(); };
-        _editor.Selection.SelectionChanged += (_, _) => { InvalidateCanvas(); UpdateInspector(); UpdateLayersSelection(); };
+        _editor.Selection.SelectionChanged += (_, _) =>
+        {
+            InvalidateCanvas();
+            UpdateInspector();
+            UpdateLayersSelection();
+            UpdatePhysicalStatus();
+        };
         _editor.ViewTransform.Reset();
+        _editor.ViewTransform.ViewRotationDegrees = viewRotationDegrees;
         CenterView();
+        UpdateViewRotationLabel();
         UpdateInspector();
         UpdateLayers();
         UpdateTitle();
+        UpdateToolButtons();
+        UpdateSnapControls();
+        UpdatePhysicalStatus();
+        RedrawRulers();
         InvalidateCanvas();
     }
 
@@ -88,6 +120,22 @@ public partial class MainWindow : Window
             ? System.IO.Path.GetFileName(_editor.Session.FilePath)
             : "Untitled";
         Title = $"LabelStudio - {file}{dirty}";
+
+        DocumentNameLabel.Text = file == "Untitled" ? "Untitled label" : file;
+        MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
+        if (catalog.TryGet(_editor.Session.Document.MediaProfileId, out MediaProfile? media) && media is not null)
+        {
+            bool metadataMismatch = !_editor.Session.Document.MediaGeometry.ProfileId.Equals(
+                media.ProfileId,
+                StringComparison.OrdinalIgnoreCase);
+            DocumentMediaLabel.Text = metadataMismatch
+                ? $"{media.Sku}  •  media data mismatch"
+                : $"{media.Sku}  •  {_editor.Session.Document.PageDimensions.Width.ToMillimetres():0.#} × {_editor.Session.Document.PageDimensions.Height.ToMillimetres():0.#} mm";
+        }
+        else
+        {
+            DocumentMediaLabel.Text = $"Unknown roll  •  {_editor.Session.Document.MediaProfileId}";
+        }
     }
 
     private void UpdateCommandButtons()
@@ -102,25 +150,43 @@ public partial class MainWindow : Window
     {
         if (_input is null) return;
         float scale = (float)(CanvasElement.ActualWidth > 0 ? e.Info.Width / CanvasElement.ActualWidth : 1.0);
-        _input.Paint(e, scale);
+        _input.Paint(e, scale, _textEditSession.ElementId);
     }
 
     // Canvas input
     private void OnCanvasMouseDown(object sender, MouseButtonEventArgs e) => _input.OnMouseDown(sender, e);
-    private void OnCanvasMouseMove(object sender, MouseEventArgs e) => _input.OnMouseMove(sender, e);
-    private void OnCanvasMouseUp(object sender, MouseButtonEventArgs e) => _input.OnMouseUp(sender, e);
-    private void OnCanvasMouseWheel(object sender, MouseWheelEventArgs e) { _input.OnMouseWheel(sender, e); UpdateCommandButtons(); }
+    private void OnCanvasMouseMove(object sender, MouseEventArgs e)
+    {
+        _input.OnMouseMove(sender, e);
+        _rulerPointer = e.GetPosition(CanvasElement);
+        UpdatePointerStatus(_rulerPointer.Value);
+        RedrawRulers();
+        UpdateTextEditOverlayPosition();
+    }
+    private void OnCanvasMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _input.OnMouseUp(sender, e);
+        UpdateToolButtons();
+        UpdatePhysicalStatus();
+        RedrawRulers();
+    }
+    private void OnCanvasMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        _input.OnMouseWheel(sender, e);
+        UpdateCommandButtons();
+        UpdateTextEditOverlayPosition();
+        RedrawRulers();
+    }
 
     // Window keyboard
     private void MainWindow_OnKeyDown(object sender, KeyEventArgs e)
     {
-        if (IsTextEditActive)
+        if (Keyboard.FocusedElement is TextBoxBase)
         {
-            if (e.Key == Key.Escape)
+            if (IsTextEditActive && e.Key == Key.Escape)
             {
                 CancelTextEdit();
                 e.Handled = true;
-                return;
             }
             return;
         }
@@ -137,7 +203,8 @@ public partial class MainWindow : Window
             }
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control)
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        if (modifiers.HasFlag(ModifierKeys.Control))
         {
             switch (e.Key)
             {
@@ -187,6 +254,8 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     break;
             }
+
+            if (e.Handled) return;
         }
 
         if (e.Key == Key.V) { SetTool(EditorTool.Select); e.Handled = true; }
@@ -206,16 +275,91 @@ public partial class MainWindow : Window
     // Command bar
     private void OnNew(object sender, RoutedEventArgs? e)
     {
+        CommitTextEdit();
         if (!PromptSaveIfDirty()) return;
         var dialog = new NewLabelDialog { Owner = this };
         if (dialog.ShowDialog() == true)
         {
-            CreateNewDocument(dialog.SelectedMediaProfileId);
+            CreateNewDocument(dialog.SelectedMediaProfileId, dialog.SelectedViewRotationDegrees);
         }
+    }
+
+    private void OnChangeMedia(object sender, RoutedEventArgs e)
+    {
+        CommitTextEdit();
+        LabelDocument document = _editor.Session.Document;
+        var dialog = new NewLabelDialog(
+            document.MediaProfileId,
+            changeExisting: true,
+            selectedViewRotationDegrees: _editor.ViewTransform.ViewRotationDegrees)
+        {
+            Owner = this,
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
+        MediaProfile media = catalog.Get(dialog.SelectedMediaProfileId);
+        Micrometre? existingLength = media.Kind == MediaKind.Continuous && document.MediaKind == DocumentMediaKind.Continuous
+            ? document.PageDimensions.Height
+            : null;
+        (PhysicalSize dimensions, MediaSnapshot snapshot) = CreateMediaGeometry(media, existingLength);
+        DocumentMediaKind mediaKind = media.Kind == MediaKind.Continuous
+            ? DocumentMediaKind.Continuous
+            : DocumentMediaKind.DieCut;
+
+        if (document.MediaProfileId.Equals(media.ProfileId, StringComparison.OrdinalIgnoreCase) &&
+            document.PageDimensions == dimensions &&
+            document.MediaGeometry == snapshot)
+        {
+            return;
+        }
+
+        _editor.Session.ExecuteCommand(new ChangeMediaCommand(document, media.ProfileId, dimensions, snapshot, mediaKind));
+        _editor.ViewTransform.ViewRotationDegrees = dialog.SelectedViewRotationDegrees;
+        UpdateViewRotationLabel();
+        CenterView();
+        StatusLabel.Text = $"Roll changed to {media.Sku}. Check artwork placement before printing.";
+    }
+
+    private static (PhysicalSize Dimensions, MediaSnapshot Snapshot) CreateMediaGeometry(
+        MediaProfile media,
+        Micrometre? continuousLength)
+    {
+        PhysicalSize dimensions = media.Kind == MediaKind.Continuous
+            ? new(new(media.PhysicalWidthMicrometres), continuousLength ?? new Micrometre(DefaultContinuousLengthMicrometres))
+            : new(new(media.PhysicalWidthMicrometres), new(media.PhysicalLengthMicrometres ?? 0));
+
+        MicrometreRect printable;
+        if (media.Kind == MediaKind.Continuous)
+        {
+            BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(media.ProfileId);
+            Micrometre feedMargin = new(PhysicalUnits.DotsToMicrometres(
+                mapping.MinimumFeedMarginDots,
+                QlContinuousLengthPlanner.Dpi));
+            printable = new(
+                media.PrintableArea.CrossFeedOffset,
+                feedMargin,
+                media.PrintableArea.Width,
+                new Micrometre(Math.Max(0, dimensions.Height.Value - feedMargin.Value * 2)));
+        }
+        else
+        {
+            printable = new(
+                media.PrintableArea.CrossFeedOffset,
+                media.PrintableArea.FeedOffset,
+                media.PrintableArea.Width,
+                media.PrintableArea.Length ?? Micrometre.Zero);
+        }
+
+        return (dimensions, new MediaSnapshot(media.ProfileId, dimensions, printable));
     }
 
     private void OnOpen(object sender, RoutedEventArgs? e)
     {
+        CommitTextEdit();
         if (!PromptSaveIfDirty()) return;
 
         OpenFileDialog ofd = new()
@@ -231,7 +375,13 @@ public partial class MainWindow : Window
                 _editor.Session.SetDocument(doc, ofd.FileName);
                 _editor.Selection.Clear();
                 _editor.ViewTransform.Reset();
+                MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
+                if (catalog.TryGet(doc.MediaProfileId, out MediaProfile? media) && media?.Kind == MediaKind.DieCut)
+                {
+                    _editor.ViewTransform.ViewRotationDegrees = 90;
+                }
                 CenterView();
+                UpdateViewRotationLabel();
                 UpdateInspector();
                 UpdateTitle();
                 InvalidateCanvas();
@@ -270,6 +420,7 @@ public partial class MainWindow : Window
 
     private void SaveToFile(string path)
     {
+        CommitTextEdit();
         try
         {
             DocumentPackage.Save(_editor.Session.Document, path);
@@ -285,6 +436,7 @@ public partial class MainWindow : Window
 
     private void OnUndo(object sender, RoutedEventArgs? e)
     {
+        CommitTextEdit();
         _editor.Session.Undo();
         _editor.Selection.PruneDeleted(_editor.Session.Document);
         UpdateCommandButtons();
@@ -293,6 +445,7 @@ public partial class MainWindow : Window
 
     private void OnRedo(object sender, RoutedEventArgs? e)
     {
+        CommitTextEdit();
         _editor.Session.Redo();
         _editor.Selection.PruneDeleted(_editor.Session.Document);
         UpdateCommandButtons();
@@ -304,14 +457,18 @@ public partial class MainWindow : Window
     {
         _editor.ViewTransform.Zoom = Math.Min(CanvasTransform.MaxZoom, _editor.ViewTransform.Zoom * 1.25);
         UpdateCommandButtons();
+        UpdateTextEditOverlayPosition();
         InvalidateCanvas();
+        RedrawRulers();
     }
 
     private void OnZoomOut(object sender, RoutedEventArgs e)
     {
         _editor.ViewTransform.Zoom = Math.Max(CanvasTransform.MinZoom, _editor.ViewTransform.Zoom / 1.25);
         UpdateCommandButtons();
+        UpdateTextEditOverlayPosition();
         InvalidateCanvas();
+        RedrawRulers();
     }
 
     private void OnZoomFit(object sender, RoutedEventArgs e)
@@ -326,6 +483,7 @@ public partial class MainWindow : Window
         _editor.ViewTransform.ViewRotationDegrees -= 90;
         UpdateViewRotationLabel();
         CenterView();
+        UpdateTextEditOverlayPosition();
         InvalidateCanvas();
     }
 
@@ -334,35 +492,235 @@ public partial class MainWindow : Window
         _editor.ViewTransform.ViewRotationDegrees += 90;
         UpdateViewRotationLabel();
         CenterView();
+        UpdateTextEditOverlayPosition();
         InvalidateCanvas();
     }
 
     private void CenterView()
     {
         PhysicalSize dims = _editor.Session.Document.PageDimensions;
-        double docW = dims.Width.Value;
-        double docH = (dims.Height > Micrometre.Zero ? dims.Height : new Micrometre(200_000)).Value;
-
-        (double displayW, double displayH) = _editor.ViewTransform.GetRotatedDisplaySize(docW, docH);
-
-        double availW = CanvasHost.ActualWidth - 80;
-        double availH = CanvasHost.ActualHeight - 80;
-        double zoom = Math.Min(availW / displayW, availH / displayH);
-        zoom = Math.Clamp(zoom, CanvasTransform.MinZoom, CanvasTransform.MaxZoom);
-        _editor.ViewTransform.Zoom = zoom;
-
-        double scaledW = displayW * zoom;
-        double scaledH = displayH * zoom;
-        _editor.ViewTransform.OffsetX = (CanvasHost.ActualWidth - scaledW) / 2;
-        _editor.ViewTransform.OffsetY = (CanvasHost.ActualHeight - scaledH) / 2;
+        _editor.ViewTransform.FitToViewportTopLeft(
+            dims.Width,
+            dims.Height,
+            CanvasHost.ActualWidth,
+            CanvasHost.ActualHeight,
+            16);
 
         UpdateCommandButtons();
+        UpdateTextEditOverlayPosition();
+        RedrawRulers();
     }
 
     private void UpdateViewRotationLabel()
     {
         ViewRotationLabel.Text = $"{_editor.ViewTransform.ViewRotationDegrees}\u00B0";
         UpdateCommandButtons();
+        RedrawRulers();
+    }
+
+    private static int GetRasterHeight(
+        LabelDocument document,
+        MediaProfile media,
+        BrotherQlMediaMapping mapping) =>
+        media.Kind == MediaKind.DieCut
+            ? mapping.PrintableLengthDots
+            : QlContinuousLengthPlanner.Plan(document.PageDimensions.Height, mapping).RasterRows;
+
+    private void OnSnapToggle(object sender, RoutedEventArgs e)
+    {
+        if (_editor is null) return;
+        _editor.SnapEnabled = !_editor.SnapEnabled;
+        UpdateSnapControls();
+        InvalidateCanvas();
+    }
+
+    private void OnShowGridToggle(object sender, RoutedEventArgs e)
+    {
+        if (_editor is null) return;
+        _editor.ShowGrid = ShowGridToggle.IsChecked == true;
+        InvalidateCanvas();
+    }
+
+    private void OnShowPrintLimitsToggle(object sender, RoutedEventArgs e)
+    {
+        if (_editor is null) return;
+        _editor.ShowPrintLimits = ShowPrintLimitsToggle.IsChecked == true;
+        InvalidateCanvas();
+    }
+
+    private void OnShowSafeAreaToggle(object sender, RoutedEventArgs e)
+    {
+        if (_editor is null) return;
+        _editor.ShowSafeArea = ShowSafeAreaToggle.IsChecked == true;
+        if (!_editor.ShowSafeArea && StatusLabel.Text == "Outside safe area")
+        {
+            StatusLabel.Text = "Ready";
+        }
+        UpdatePhysicalStatus();
+        InvalidateCanvas();
+    }
+
+    private void OnGridSpacingChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_editor is null || GridSpacingCombo.SelectedItem is not ComboBoxItem item ||
+            item.Tag is not string raw || !int.TryParse(raw, out int spacing)) return;
+
+        LabelDocument document = _editor.Session.Document;
+        if (document.DesignMetadata.Grid.XSpacing.Value == spacing &&
+            document.DesignMetadata.Grid.YSpacing.Value == spacing) return;
+
+        DocumentGridGeometry grid = document.DesignMetadata.Grid with
+        {
+            XSpacing = new Micrometre(spacing),
+            YSpacing = new Micrometre(spacing),
+        };
+        DocumentDesignMetadata metadata = new(
+            document.DesignMetadata.Groups,
+            document.DesignMetadata.Guides,
+            grid,
+            document.DesignMetadata.SafeMargins);
+        _editor.Session.ExecuteCommand(new ChangeDesignMetadataCommand(document.DesignMetadata, metadata));
+    }
+
+    private void UpdateSnapControls()
+    {
+        if (_editor is null) return;
+        SnapToggle.Content = _editor.SnapEnabled ? "Snap: ON" : "Snap: OFF";
+        SnapStatusLabel.Text = _editor.SnapEnabled ? "Snap: ON" : "Snap: OFF";
+        ShowGridToggle.IsChecked = _editor.ShowGrid;
+        ShowPrintLimitsToggle.IsChecked = _editor.ShowPrintLimits;
+        ShowSafeAreaToggle.IsChecked = _editor.ShowSafeArea;
+        ShowSafeAreaToggle.Content =
+            $"Safe {_editor.Session.Document.DesignMetadata.SafeMargins.Left.ToMillimetres():0.#} mm";
+    }
+
+    private void UpdatePhysicalStatus()
+    {
+        if (_editor is null) return;
+        LabelDocument document = _editor.Session.Document;
+        Micrometre length = _input?.PreviewPageLength ?? document.PageDimensions.Height;
+        string cut = document.MediaKind == DocumentMediaKind.Continuous
+            ? $" · Cut {length.ToMillimetres():0.0} mm"
+            : string.Empty;
+        LabelSizeStatusLabel.Text =
+            $"Label: {document.PageDimensions.Width.ToMillimetres():0.#} × {length.ToMillimetres():0.#} mm{cut}";
+
+        if (_editor.ShowSafeArea && _editor.Selection.HasSelection)
+        {
+            IReadOnlyCollection<string> ids = _editor.Selection.GetSelectedElementIds(document);
+            MicrometreRect bounds = SelectionBounds.GetCombinedBounds(document, ids);
+            MicrometreRect safe = DocumentPrintableGeometry.GetSafeArea(document);
+            if (bounds.X < safe.X || bounds.Y < safe.Y || bounds.Right > safe.Right || bounds.Bottom > safe.Bottom)
+            {
+                StatusLabel.Text = "Outside safe area";
+            }
+        }
+    }
+
+    private void UpdatePointerStatus(Point point)
+    {
+        MicrometrePoint documentPoint = _editor.ViewTransform.CanvasToDocument(point.X, point.Y);
+        PointerStatusLabel.Text = $"X: {documentPoint.X.ToMillimetres():0.0} mm  Y: {documentPoint.Y.ToMillimetres():0.0} mm";
+    }
+
+    private void OnCanvasMouseLeave(object sender, MouseEventArgs e)
+    {
+        _rulerPointer = null;
+        PointerStatusLabel.Text = "X: --  Y: --";
+        RedrawRulers();
+    }
+
+    private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_editor is null) return;
+        RedrawRulers();
+        UpdateTextEditOverlayPosition();
+    }
+
+    private void RedrawRulers()
+    {
+        if (_editor is null || HorizontalRuler.ActualWidth <= 0 || VerticalRuler.ActualHeight <= 0) return;
+        HorizontalRuler.Children.Clear();
+        VerticalRuler.Children.Clear();
+        DrawRuler(HorizontalRuler, _rulerLayout.CreateLayout(
+            _editor.ViewTransform, RulerAxis.Horizontal, 0, HorizontalRuler.ActualWidth));
+        DrawRuler(VerticalRuler, _rulerLayout.CreateLayout(
+            _editor.ViewTransform, RulerAxis.Vertical, 0, VerticalRuler.ActualHeight));
+
+        if (_rulerPointer is Point pointer)
+        {
+            DrawRulerCursor(HorizontalRuler, RulerAxis.Horizontal, pointer.X);
+            DrawRulerCursor(VerticalRuler, RulerAxis.Vertical, pointer.Y);
+        }
+    }
+
+    private void DrawRuler(System.Windows.Controls.Canvas canvas, RulerLayout layout)
+    {
+        bool horizontal = layout.Axis == RulerAxis.Horizontal;
+        foreach (RulerTick tick in layout.Ticks)
+        {
+            var line = new System.Windows.Shapes.Line
+            {
+                Stroke = (Brush)FindResource(tick.IsMajor ? "TextSecondaryBrush" : "TextMutedBrush"),
+                StrokeThickness = 1,
+            };
+            if (horizontal)
+            {
+                line.X1 = line.X2 = tick.Position;
+                line.Y1 = tick.IsMajor ? 8 : 14;
+                line.Y2 = 24;
+            }
+            else
+            {
+                line.X1 = tick.IsMajor ? 12 : 18;
+                line.X2 = 30;
+                line.Y1 = line.Y2 = tick.Position;
+            }
+            canvas.Children.Add(line);
+
+            if (tick.IsMajor && tick.Label is not null)
+            {
+                var label = new TextBlock
+                {
+                    Text = tick.ValueMillimetres == 0 ? "0" : tick.Label,
+                    FontSize = 9,
+                    Foreground = (Brush)FindResource("TextMutedBrush"),
+                };
+                if (horizontal)
+                {
+                    System.Windows.Controls.Canvas.SetLeft(label, tick.Position + 2);
+                    System.Windows.Controls.Canvas.SetTop(label, 0);
+                }
+                else
+                {
+                    System.Windows.Controls.Canvas.SetLeft(label, 1);
+                    System.Windows.Controls.Canvas.SetTop(label, tick.Position + 1);
+                }
+                canvas.Children.Add(label);
+            }
+        }
+    }
+
+    private static void DrawRulerCursor(System.Windows.Controls.Canvas canvas, RulerAxis axis, double position)
+    {
+        var marker = new System.Windows.Shapes.Line
+        {
+            Stroke = Brushes.DeepPink,
+            StrokeThickness = 1.5,
+        };
+        if (axis == RulerAxis.Horizontal)
+        {
+            marker.X1 = marker.X2 = position;
+            marker.Y1 = 0;
+            marker.Y2 = 24;
+        }
+        else
+        {
+            marker.X1 = 0;
+            marker.X2 = 30;
+            marker.Y1 = marker.Y2 = position;
+        }
+        canvas.Children.Add(marker);
     }
 
     // Tools
@@ -375,6 +733,7 @@ public partial class MainWindow : Window
 
     private void SetTool(EditorTool tool)
     {
+        CommitTextEdit();
         _editor.ActiveTool = tool;
         UpdateToolButtons();
         InvalidateCanvas();
@@ -384,7 +743,11 @@ public partial class MainWindow : Window
     {
         foreach (UIElement? child in ((StackPanel)ToolSelect.Parent).Children)
         {
-            if (child is Button btn) btn.Background = System.Windows.Media.Brushes.Transparent;
+            if (child is Button btn)
+            {
+                btn.Background = System.Windows.Media.Brushes.Transparent;
+                btn.Foreground = (Brush)FindResource("InkSoftBrush");
+            }
         }
         Button? activeBtn = _editor.ActiveTool switch
         {
@@ -396,35 +759,56 @@ public partial class MainWindow : Window
             EditorTool.Pan => ToolPan,
             _ => null,
         };
-        if (activeBtn is not null) activeBtn.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0x7A, 0xCC));
+        if (activeBtn is not null)
+        {
+            activeBtn.Background = (Brush)FindResource("AccentBrush");
+            activeBtn.Foreground = System.Windows.Media.Brushes.White;
+        }
     }
 
     // Thermal preview
     private void OnThermalPreview(object sender, RoutedEventArgs e)
     {
-        LabelDocument doc = _editor.Session.Document;
-        PreparedScene scene = new LayoutEngine().Prepare(doc);
-        MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
-        if (!catalog.TryGet(doc.MediaProfileId, out MediaProfile? media) || media is null) return;
+        CommitTextEdit();
+        try
+        {
+            LabelDocument doc = _editor.Session.Document;
+            PreparedScene scene = new LayoutEngine().Prepare(doc);
+            MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
+            if (!catalog.TryGet(doc.MediaProfileId, out MediaProfile? media) || media is null) return;
 
-        int headLeft = media.Kind == MediaKind.DieCut ? 555 : 12;
-        int printableWidth = media.Kind == MediaKind.DieCut ? 165 : 696;
-        int rasterHeight = media.Kind == MediaKind.DieCut ? 566 : 500;
+            BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(media.ProfileId);
+            int rasterHeight = GetRasterHeight(doc, media, mapping);
+            MicrometreRect printable = DocumentPrintableGeometry.GetMediaPrintableArea(doc);
 
-        RenderTarget target = new(
-            300, 300, 720, rasterHeight,
-            doc.MediaGeometry.PrintableArea,
-            headLeft, printableWidth,
-            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)]);
+            RenderTarget target = new(
+                300, 300, 720, rasterHeight,
+                printable,
+                mapping.HeadLeftBlankDots, mapping.PrintableWidthDots,
+                [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)])
+            {
+                DocumentOriginX = printable.X,
+                DocumentOriginY = printable.Y,
+            };
 
-        RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
-        var preview = new ThermalPreviewWindow(planes) { Owner = this };
-        preview.ShowDialog();
+            RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
+            var preview = new ThermalPreviewWindow(planes) { Owner = this };
+            preview.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Thermal preview failed.\n\n{ex}",
+                "Thermal Preview Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     // Mock print
     private void OnMockPrint(object sender, RoutedEventArgs e)
     {
+        CommitTextEdit();
         LabelDocument doc = _editor.Session.Document;
         PreparedScene scene = new LayoutEngine().Prepare(doc);
         MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
@@ -440,15 +824,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        int headLeft = media.Kind == MediaKind.DieCut ? 555 : 12;
-        int printableWidth = media.Kind == MediaKind.DieCut ? 165 : 696;
-        int rasterHeight = media.Kind == MediaKind.DieCut ? 566 : 500;
+        BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(media.ProfileId);
+        int rasterHeight = GetRasterHeight(doc, media, mapping);
+        MicrometreRect printable = DocumentPrintableGeometry.GetMediaPrintableArea(doc);
 
         RenderTarget target = new(
             settings.Dpi, settings.Dpi, 720, rasterHeight,
-            doc.MediaGeometry.PrintableArea,
-            headLeft, printableWidth,
-            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)]);
+            printable,
+            mapping.HeadLeftBlankDots, mapping.PrintableWidthDots,
+            [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)])
+        {
+            DocumentOriginX = printable.X,
+            DocumentOriginY = printable.Y,
+        };
 
         RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
         PrintIntent intent = new(doc.Id, scene, media, settings);
@@ -470,6 +858,7 @@ public partial class MainWindow : Window
     // Physical print
     private void OnPrint(object sender, RoutedEventArgs e)
     {
+        CommitTextEdit();
         var dialog = new PrintDialogWindow { Owner = this };
         if (dialog.ShowDialog() == true)
         {
@@ -480,37 +869,44 @@ public partial class MainWindow : Window
                 return;
             }
 
-            LabelDocument doc = _editor.Session.Document;
-            PreparedScene scene = new LayoutEngine().Prepare(doc);
-            MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
-            if (!catalog.TryGet(doc.MediaProfileId, out MediaProfile? media) || media is null) return;
-
-            PrintSettings settings = new(doc.PrintDefaults.DefaultInk, doc.PrintDefaults.AutoCut, doc.PrintDefaults.CutAtEnd, doc.PrintDefaults.Dpi);
-
-            PreflightResult preflight = new PreflightEngine().Check(doc, scene, media, settings);
-            if (!preflight.CanPrint)
-            {
-                string errors = string.Join("\n", preflight.Errors.Select(x => $"{x.Code}: {x.Message}"));
-                MessageBox.Show($"Preflight failed:\n\n{errors}", "Cannot Print", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            int headLeft = media.Kind == MediaKind.DieCut ? 555 : 12;
-            int printableWidth = media.Kind == MediaKind.DieCut ? 165 : 696;
-            int rasterHeight = media.Kind == MediaKind.DieCut ? 566 : 500;
-
-            RenderTarget target = new(
-                settings.Dpi, settings.Dpi, 720, rasterHeight,
-                doc.MediaGeometry.PrintableArea,
-                headLeft, printableWidth,
-                [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)]);
-
-            RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
-            PrintIntent intent = new(doc.Id, scene, media, settings);
-            DevicePrintJob job = new(intent, planes, media, settings, $"Physical-{doc.Id}");
-
             try
             {
+                LabelDocument doc = _editor.Session.Document;
+                PreparedScene scene = new LayoutEngine().Prepare(doc);
+                MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
+                if (!catalog.TryGet(doc.MediaProfileId, out MediaProfile? media) || media is null) return;
+
+                PrintSettings settings = new(
+                    doc.PrintDefaults.DefaultInk,
+                    doc.PrintDefaults.AutoCut,
+                    doc.PrintDefaults.CutAtEnd,
+                    doc.PrintDefaults.Dpi);
+
+                PreflightResult preflight = new PreflightEngine().Check(doc, scene, media, settings);
+                if (!preflight.CanPrint)
+                {
+                    string errors = string.Join("\n", preflight.Errors.Select(x => $"{x.Code}: {x.Message}"));
+                    MessageBox.Show($"Preflight failed:\n\n{errors}", "Cannot Print", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                BrotherQlMediaMapping mapping = BrotherQlMediaMapping.For(media.ProfileId);
+                int rasterHeight = GetRasterHeight(doc, media, mapping);
+                MicrometreRect printable = DocumentPrintableGeometry.GetMediaPrintableArea(doc);
+                RenderTarget target = new(
+                    settings.Dpi, settings.Dpi, 720, rasterHeight,
+                    printable,
+                    mapping.HeadLeftBlankDots, mapping.PrintableWidthDots,
+                    [new InkOutputChannel("Black", false), new InkOutputChannel("Red", media.SupportsRed)])
+                {
+                    DocumentOriginX = printable.X,
+                    DocumentOriginY = printable.Y,
+                };
+
+                RenderedPlanes planes = new ThermalTargetRenderer().Render(scene, target);
+                PrintIntent intent = new(doc.Id, scene, media, settings);
+                DevicePrintJob job = new(intent, planes, media, settings, $"Physical-{doc.Id}");
+
                 Ql800PrinterBackend backend = new(
                     transport: new WindowsRawTransport(),
                     transportTarget: new PrinterTransportTarget(queueName));
@@ -520,7 +916,7 @@ public partial class MainWindow : Window
                     StatusLabel.Text = $"Print job sent to {queueName}";
                 else
                     MessageBox.Show(
-                        result.Error ?? "Unknown error",
+                        result.Error ?? "Print failed without an error detail from the printer backend.",
                         "Print Failed",
                         MessageBoxButton.OK,
                         MessageBoxImage.Error);
@@ -528,7 +924,7 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Failed to send print job to '{queueName}'.\n\nEnsure the printer is connected, powered on, and the queue name matches exactly.\n\nError: {ex.Message}",
+                    $"Failed to send print job to '{queueName}'.\n\nEnsure the printer is connected, powered on, and the queue name matches exactly.\n\n{ex.GetType().Name}: {ex.Message}",
                     "Print Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -539,6 +935,7 @@ public partial class MainWindow : Window
     // Closing
     private void MainWindow_OnClosing(object sender, CancelEventArgs e)
     {
+        CommitTextEdit();
         if (!PromptSaveIfDirty())
         {
             e.Cancel = true;
@@ -548,144 +945,139 @@ public partial class MainWindow : Window
     private bool PromptSaveIfDirty()
     {
         if (!_editor.Session.IsDirty) return true;
-        var result = MessageBox.Show("Save changes before closing?", "Unsaved Changes",
-            MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-        if (result == MessageBoxResult.Yes)
+        var dialog = new UnsavedChangesDialog { Owner = this };
+        if (dialog.ShowDialog() != true)
+        {
+            return false;
+        }
+
+        if (dialog.SaveChanges)
         {
             OnSave(this, null!);
             return !_editor.Session.IsDirty;
         }
-        return result == MessageBoxResult.No;
-    }
 
-    private DateTime _lastClickTime;
-    private Point _lastClickPosition;
-    private const double DoubleClickDistance = 5.0;
-    private const int DoubleClickMilliseconds = 400;
+        return true;
+    }
 
     private void OnCanvasPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
 
         Point pos = e.GetPosition(CanvasElement);
-        DateTime now = DateTime.UtcNow;
-
-        if (IsTextEditActive)
+        if (e.OriginalSource is DependencyObject source &&
+            (ReferenceEquals(source, TextEditOverlay) || TextEditOverlay.IsAncestorOf(source)))
         {
-            MicrometrePoint docPoint = _editor.ViewTransform.CanvasToDocument(pos.X, pos.Y);
-            Micrometre tolerance = _editor.ViewTransform.ScreenToleranceToDocument(EditorState.ScreenHitToleranceDip);
-            string? hitId = HitTester.HitTestTopmost(_editor.Session.Document, docPoint, tolerance);
-            TextElement? textElement = hitId is not null
-                ? _editor.Session.Document.Elements.OfType<TextElement>().FirstOrDefault(t => t.Id == hitId)
-                : null;
-
-            if (textElement is not null && textElement.Id == _textEditElementId)
-            {
-                return;
-            }
-
-            CommitTextEdit();
             return;
         }
-
-        if ((now - _lastClickTime).TotalMilliseconds < DoubleClickMilliseconds &&
-            Math.Abs(pos.X - _lastClickPosition.X) < DoubleClickDistance &&
-            Math.Abs(pos.Y - _lastClickPosition.Y) < DoubleClickDistance)
-        {
-            HandleDoubleClick(pos);
-            _lastClickTime = DateTime.MinValue;
-            e.Handled = false;
-            return;
-        }
-
-        _lastClickTime = now;
-        _lastClickPosition = pos;
-    }
-
-    private void HandleDoubleClick(Point pos)
-    {
-        if (_editor.ActiveTool != EditorTool.Select) return;
 
         MicrometrePoint docPoint = _editor.ViewTransform.CanvasToDocument(pos.X, pos.Y);
         Micrometre tolerance = _editor.ViewTransform.ScreenToleranceToDocument(EditorState.ScreenHitToleranceDip);
-
         string? hitId = HitTester.HitTestTopmost(_editor.Session.Document, docPoint, tolerance);
-        if (hitId is null) return;
+        TextElement? textElement = hitId is null
+            ? null
+            : _editor.Session.Document.Elements.OfType<TextElement>().FirstOrDefault(text => text.Id == hitId);
 
-        TextElement? textElement = _editor.Session.Document.Elements
-            .OfType<TextElement>()
-            .FirstOrDefault(t => t.Id == hitId);
-        if (textElement is not null)
+        bool canEditHitText = textElement is not null &&
+            _editor.ActiveTool is EditorTool.Select or EditorTool.Text &&
+            !_input.IsPointerOverSelectionHandle(pos) &&
+            !_input.IsPointerOverCutHandle(pos) &&
+            IsTextContentPoint(textElement, docPoint);
+
+        if (canEditHitText)
         {
-            BeginTextEdit(textElement);
+            if (IsTextEditActive && _textEditSession.ElementId != textElement!.Id)
+            {
+                CommitTextEdit();
+            }
+
+            _editor.Selection.SelectElement(textElement!.Id);
+            BeginTextEdit(textElement, pos);
+            e.Handled = true;
+            return;
+        }
+
+        if (IsTextEditActive)
+        {
+            CommitTextEdit();
         }
     }
 
-    private bool IsTextEditActive => _textEditElementId is not null;
+    private bool IsTextEditActive => _textEditSession.IsActive;
 
-    private void BeginTextEdit(TextElement text)
+    private void BeginTextEdit(TextElement text, Point? canvasPoint = null, bool isNew = false)
     {
-        _textEditElementId = text.Id;
-        _textEditOriginalText = text.Text;
+        if (_editor.Session.Document.IsEffectivelyLocked(text.Id) ||
+            !_editor.Session.Document.IsEffectivelyVisible(text.Id)) return;
 
-        MicrometreRect bounds = text.Bounds;
-        CanvasTransform view = _editor.ViewTransform;
-        (double canvasX, double canvasY) = view.DocumentToCanvas(bounds.X, bounds.Y);
-        double canvasW = view.DocumentToCanvasLength(bounds.Width);
-        double canvasH = view.DocumentToCanvasLength(bounds.Height);
+        if (!IsTextEditActive)
+        {
+            _textEditSession.Begin(text.Id);
+            _newTextEditElementId = isNew ? text.Id : null;
+        }
 
+        _updatingTextEditOverlay = true;
         TextEditOverlay.Text = text.Text;
+        _updatingTextEditOverlay = false;
+        TextEditOverlay.FontFamily = new FontFamily(text.FontFamily ?? "Segoe UI");
+        TextEditOverlay.Foreground = text.Ink == InkChannel.Red ? Brushes.DarkRed : Brushes.Black;
+        ApplyTextOverlayLayout(text);
         TextEditOverlay.Visibility = Visibility.Visible;
-        TextEditOverlay.Width = Math.Max(60, canvasW);
-        TextEditOverlay.Height = Math.Max(24, canvasH);
-        TextEditOverlay.FontSize = Math.Max(10, canvasH * 0.6);
         TextEditOverlay.IsHitTestVisible = true;
         OverlayCanvas.IsHitTestVisible = true;
 
-        System.Windows.Controls.Canvas.SetLeft(TextEditOverlay, canvasX);
-        System.Windows.Controls.Canvas.SetTop(TextEditOverlay, canvasY);
+        UpdateTextEditOverlayPosition(text);
 
         TextEditOverlay.Focus();
-        TextEditOverlay.SelectAll();
+        if (canvasPoint is null)
+        {
+            TextEditOverlay.CaretIndex = TextEditOverlay.Text.Length;
+            TextEditOverlay.SelectionLength = 0;
+        }
+        else
+        {
+            Point click = canvasPoint.Value;
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+            {
+                Point local = OverlayCanvas.TranslatePoint(click, TextEditOverlay);
+                int index = TextEditOverlay.GetCharacterIndexFromPoint(local, true);
+                TextEditOverlay.CaretIndex = index < 0 ? TextEditOverlay.Text.Length : index;
+                TextEditOverlay.SelectionLength = 0;
+            });
+        }
         InvalidateCanvas();
     }
 
     private void CommitTextEdit()
     {
-        if (_textEditElementId is null) return;
-
-        string newText = TextEditOverlay.Text;
-        string elementId = _textEditElementId;
-        string originalText = _textEditOriginalText;
-
+        if (!IsTextEditActive) return;
+        _textEditSession.Commit();
+        _newTextEditElementId = null;
         ExitTextEdit();
-
-        if (newText != originalText)
-        {
-            TextElement? element = _editor.Session.Document.Elements
-                .OfType<TextElement>()
-                .FirstOrDefault(t => t.Id == elementId);
-            if (element is not null)
-            {
-                _editor.Session.ExecuteCommand(new ChangePropertyCommand(
-                    elementId, "text", originalText, newText));
-            }
-        }
     }
 
     private void CancelTextEdit()
     {
+        string? newElementId = _newTextEditElementId;
+        _textEditSession.Cancel();
+        _newTextEditElementId = null;
+        if (newElementId is not null &&
+            _editor.Session.Document.Elements.Any(element => element.Id == newElementId) &&
+            _editor.Session.History.CanUndo)
+        {
+            _editor.Session.Undo();
+            _editor.Selection.Clear();
+        }
         ExitTextEdit();
         InvalidateCanvas();
     }
 
     private void ExitTextEdit()
     {
-        _textEditElementId = null;
-        _textEditOriginalText = string.Empty;
         TextEditOverlay.Visibility = Visibility.Collapsed;
         TextEditOverlay.IsHitTestVisible = false;
         OverlayCanvas.IsHitTestVisible = false;
+        TextEditOverlay.RenderTransform = null;
     }
 
     private void OnTextEditLostFocus(object sender, RoutedEventArgs e)
@@ -700,31 +1092,206 @@ public partial class MainWindow : Window
     {
         if (!IsTextEditActive) return;
 
-        if (e.Key == Key.Enter)
-        {
-            CommitTextEdit();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Escape)
+        if (e.Key == Key.Escape)
         {
             CancelTextEdit();
             e.Handled = true;
         }
     }
+
+    private void OnTextEditTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_updatingTextEditOverlay && IsTextEditActive)
+        {
+            _textEditSession.Update(TextEditOverlay.Text);
+            UpdateTextEditOverlayPosition();
+            InvalidateCanvas();
+        }
+    }
+
+    private void UpdateTextEditOverlayPosition(TextElement? editedElement = null)
+    {
+        if (!IsTextEditActive) return;
+
+        TextElement? text = editedElement ?? _editor.Session.Document.Elements
+            .OfType<TextElement>()
+            .FirstOrDefault(element => element.Id == _textEditSession.ElementId);
+        if (text is null)
+        {
+            ExitTextEdit();
+            return;
+        }
+
+        CanvasTransform view = _editor.ViewTransform;
+        MicrometreRect bounds = text.Bounds;
+        MicrometrePoint centre = new(
+            new(bounds.X.Value + bounds.Width.Value / 2),
+            new(bounds.Y.Value + bounds.Height.Value / 2));
+        (double centreX, double centreY) = view.DocumentToCanvas(centre);
+        double frameWidth = view.DocumentToCanvasLength(bounds.Width);
+        double frameHeight = view.DocumentToCanvasLength(bounds.Height);
+        TextEditOverlay.Width = Math.Max(1, frameWidth);
+        TextEditOverlay.Height = Math.Max(1, frameHeight);
+        ApplyTextOverlayLayout(text);
+        TextLayoutResult layout = TextLayoutEngine.Layout(
+            text.Text,
+            text.FontFamily,
+            (float)Math.Max(0.1, text.FontSizePoints * (96.0 / 72.0) * view.Zoom),
+            (float)((96.0 / 72.0) * view.Zoom),
+            (float)frameWidth,
+            (float)frameHeight,
+            text.Wrapping,
+            text.Overflow,
+            text.HorizontalAlignment,
+            text.VerticalAlignment);
+        TextEditOverlay.FontSize = layout.EffectiveFontSizePixels;
+        TextEditOverlay.RenderTransformOrigin = new Point(0.5, 0.5);
+        TextEditOverlay.RenderTransform = new RotateTransform(
+            view.ViewRotationDegrees + text.RotationMillidegrees / 1000.0);
+
+        System.Windows.Controls.Canvas.SetLeft(TextEditOverlay, centreX - TextEditOverlay.Width / 2);
+        System.Windows.Controls.Canvas.SetTop(TextEditOverlay, centreY - TextEditOverlay.Height / 2);
+    }
+
+    private void ApplyTextOverlayLayout(TextElement text)
+    {
+        TextEditOverlay.TextWrapping = text.Wrapping == TextWrappingMode.Wrap
+            ? System.Windows.TextWrapping.Wrap
+            : System.Windows.TextWrapping.NoWrap;
+        TextEditOverlay.HorizontalContentAlignment = text.HorizontalAlignment switch
+        {
+            TextHorizontalAlignment.Center => System.Windows.HorizontalAlignment.Center,
+            TextHorizontalAlignment.Right => System.Windows.HorizontalAlignment.Right,
+            _ => System.Windows.HorizontalAlignment.Left,
+        };
+        TextEditOverlay.VerticalContentAlignment = text.VerticalAlignment switch
+        {
+            TextVerticalAlignment.Middle => System.Windows.VerticalAlignment.Center,
+            TextVerticalAlignment.Bottom => System.Windows.VerticalAlignment.Bottom,
+            _ => System.Windows.VerticalAlignment.Top,
+        };
+    }
+
+    private bool IsTextContentPoint(TextElement text, MicrometrePoint documentPoint)
+    {
+        GeometryPoint local = ElementGeometry.InverseRotatePoint(documentPoint, text.Bounds, text.RotationMillidegrees);
+        double inset = _editor.ViewTransform.ScreenToleranceToDocument(5).Value;
+        inset = Math.Min(inset, Math.Min(text.Bounds.Width.Value, text.Bounds.Height.Value) / 4.0);
+        return local.X >= text.Bounds.X.Value + inset &&
+            local.X <= text.Bounds.Right.Value - inset &&
+            local.Y >= text.Bounds.Y.Value + inset &&
+            local.Y <= text.Bounds.Bottom.Value - inset;
+    }
+    private bool _suppressContextUpdates;
+
+    private TextElement? GetSingleSelectedTextElement()
+    {
+        if (!_editor.Selection.HasSelection) return null;
+        LabelDocument doc = _editor.Session.Document;
+        IReadOnlyCollection<string> ids = _editor.Selection.GetSelectedElementIds(doc);
+        if (ids.Count != 1) return null;
+        string? id = ids.Single();
+        return doc.Elements.OfType<TextElement>().FirstOrDefault(t => t.Id == id);
+    }
+
+    private void UpdateContextToolbar()
+    {
+        if (_suppressContextUpdates) return;
+        TextElement? text = GetSingleSelectedTextElement();
+
+        if (text is null)
+        {
+            TextContextPanel.Opacity = 0.45;
+            ContextFontFamilyCombo.IsEnabled = false;
+            ContextFontSizeBox.IsEnabled = false;
+            ContextTextStatus.Text = "Select text to format";
+            ContextFontFamilyCombo.Text = "";
+            ContextFontSizeBox.Text = "";
+            return;
+        }
+
+        TextContextPanel.Opacity = 1.0;
+        ContextFontFamilyCombo.IsEnabled = true;
+        ContextFontSizeBox.IsEnabled = true;
+        ContextTextStatus.Text = text.Text.Length > 20 ? text.Text[..20] + "…" : (text.Text.Length == 0 ? "Empty text" : text.Text);
+
+        _suppressContextUpdates = true;
+        ContextFontFamilyCombo.Text = text.FontFamily ?? "Segoe UI";
+        ContextFontSizeBox.Text = text.FontSizePoints.ToString("0");
+        _suppressContextUpdates = false;
+    }
+
+    private void OnContextFontFamilyChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressContextUpdates) return;
+        TextElement? text = GetSingleSelectedTextElement();
+        if (text is null) return;
+        string family = (ContextFontFamilyCombo.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(family)) return;
+        if (text.FontFamily == family) return;
+        CommitTextProperty(text.Id, "fontFamily", text.FontFamily ?? "", (object)family);
+    }
+
+    private void OnContextFontFamilyLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_suppressContextUpdates) return;
+        TextElement? text = GetSingleSelectedTextElement();
+        if (text is null) return;
+        string family = (ContextFontFamilyCombo.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(family)) return;
+        if (text.FontFamily == family) return;
+        CommitTextProperty(text.Id, "fontFamily", text.FontFamily ?? "", (object)family);
+    }
+
+    private void CommitContextFontSize(int newSize)
+    {
+        TextElement? text = GetSingleSelectedTextElement();
+        if (text is null) return;
+        newSize = Math.Clamp(newSize, 4, 200);
+        if (text.FontSizePoints == newSize) return;
+        CommitTextProperty(text.Id, "fontSizePoints", text.FontSizePoints, newSize);
+    }
+
+    private void OnContextFontSizeLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_suppressContextUpdates) return;
+        if (int.TryParse(ContextFontSizeBox.Text, out int size))
+            CommitContextFontSize(size);
+        else if (GetSingleSelectedTextElement() is { } text)
+            ContextFontSizeBox.Text = text.FontSizePoints.ToString("0");
+    }
+
+    private void OnContextFontSizeKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        if (int.TryParse(ContextFontSizeBox.Text, out int size))
+            CommitContextFontSize(size);
+        Keyboard.ClearFocus();
+        e.Handled = true;
+    }
+
+    private void OnContextFontSizeUp(object sender, RoutedEventArgs e)
+    {
+        TextElement? text = GetSingleSelectedTextElement();
+        if (text is null) return;
+        CommitContextFontSize(text.FontSizePoints + 1);
+    }
+
+    private void OnContextFontSizeDown(object sender, RoutedEventArgs e)
+    {
+        TextElement? text = GetSingleSelectedTextElement();
+        if (text is null) return;
+        CommitContextFontSize(text.FontSizePoints - 1);
+    }
+
     private void UpdateInspector()
     {
         InspectorPanel.Children.Clear();
+        UpdateContextToolbar();
 
         if (!_editor.Selection.HasSelection)
         {
-            InspectorPanel.Children.Add(new TextBlock
-            {
-                Text = "No selection",
-                Foreground = System.Windows.Media.Brushes.DimGray,
-                FontSize = 12,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 20, 0, 0),
-            });
+            AddDocumentInspector();
             return;
         }
 
@@ -831,6 +1398,22 @@ public partial class MainWindow : Window
                     CommitTextProperty(text.Id, "fontSizePoints", text.FontSizePoints, (int)Math.Round(pt, MidpointRounding.AwayFromZero)));
                 AddInspectorTextField("Font", text.FontFamily ?? "", value =>
                     CommitTextProperty(text.Id, "fontFamily", text.FontFamily ?? "", (object)(string.IsNullOrWhiteSpace(value) ? null : value.Trim())!));
+                AddInspectorEnumField("Sizing", text.FrameSizing, value =>
+                    CommitTextProperty(text.Id, "frameSizing", text.FrameSizing, value));
+                AddInspectorEnumField("Wrapping", text.Wrapping, value =>
+                    CommitTextProperty(text.Id, "wrapping", text.Wrapping, value));
+                AddInspectorEnumField("Overflow", text.Overflow, value =>
+                    CommitTextProperty(text.Id, "overflow", text.Overflow, value));
+                AddInspectorEnumField("H Align", text.HorizontalAlignment, value =>
+                    CommitTextProperty(text.Id, "horizontalAlignment", text.HorizontalAlignment, value));
+                AddInspectorEnumField("V Align", text.VerticalAlignment, value =>
+                    CommitTextProperty(text.Id, "verticalAlignment", text.VerticalAlignment, value));
+                AddInspectorField("Rotation", text.RotationMillidegrees / 1000.0, "Rotation", degrees =>
+                    CommitTextProperty(
+                        text.Id,
+                        "rotationMillidegrees",
+                        text.RotationMillidegrees,
+                        ElementGeometry.NormalizeAngle((int)Math.Round(degrees * 1000, MidpointRounding.AwayFromZero))));
                 break;
             case ImageElement img:
                 AddInspectorRow("Ink", img.Ink.ToString(), true);
@@ -839,11 +1422,70 @@ public partial class MainWindow : Window
         }
     }
 
+    private void AddDocumentInspector()
+    {
+        LabelDocument document = _editor.Session.Document;
+        AddInspectorRow("Media", document.MediaProfileId, false);
+        AddInspectorRow("Width", $"{document.PageDimensions.Width.ToMillimetres():0.0} mm (fixed)", false);
+        if (document.MediaKind == DocumentMediaKind.Continuous)
+        {
+            AddInspectorField("Length", document.PageDimensions.Height.ToMillimetres(), "Length", millimetres =>
+            {
+                MediaProfile media = MediaCatalog.CreateBuiltIn().Get(document.MediaProfileId);
+                double minimum = media.Cutter.MinimumContinuousLength?.ToMillimetres() ?? 0.001;
+                double maximum = media.Cutter.MaximumContinuousLength?.ToMillimetres() ?? int.MaxValue / 1000.0;
+                double clamped = Math.Clamp(millimetres, minimum, maximum);
+                Micrometre length = Micrometre.FromMillimetres(clamped);
+                if (length == _editor.Session.Document.PageDimensions.Height) return;
+                _editor.Session.ExecuteCommand(new ChangePageLengthCommand(_editor.Session.Document, length));
+            });
+        }
+        else
+        {
+            AddInspectorRow("Length", $"{document.PageDimensions.Height.ToMillimetres():0.0} mm (fixed)", false);
+        }
+
+        AddInspectorField("Safe inset", document.DesignMetadata.SafeMargins.Left.ToMillimetres(), "SafeMargin", millimetres =>
+        {
+            LabelDocument current = _editor.Session.Document;
+            Micrometre margin = Micrometre.FromMillimetres(Math.Max(0, millimetres));
+            DocumentDesignMetadata metadata = new(
+                current.DesignMetadata.Groups,
+                current.DesignMetadata.Guides,
+                current.DesignMetadata.Grid,
+                DocumentSafeMargins.Uniform(margin));
+            _editor.Session.ExecuteCommand(new ChangeDesignMetadataCommand(current.DesignMetadata, metadata));
+        });
+        AddInspectorRow("Grid", $"{document.DesignMetadata.Grid.XSpacing.ToMillimetres():0.###} mm", false);
+    }
+
     private void AddInspectorRow(string label, string value, bool isEditable)
     {
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
         panel.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("InspectorLabel"), Width = 60 });
-        panel.Children.Add(new TextBlock { Text = value, Foreground = System.Windows.Media.Brushes.White, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = value, Foreground = (Brush)FindResource("TextBrush"), FontSize = 12 });
+        InspectorPanel.Children.Add(panel);
+    }
+
+    private void AddInspectorEnumField<T>(string label, T value, Action<T> onCommit)
+        where T : struct, Enum
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
+        panel.Children.Add(new TextBlock { Text = label, Style = (Style)FindResource("InspectorLabel"), Width = 60 });
+        var comboBox = new ComboBox
+        {
+            ItemsSource = Enum.GetValues<T>(),
+            SelectedItem = value,
+            MinWidth = 112,
+        };
+        comboBox.SelectionChanged += (_, _) =>
+        {
+            if (comboBox.SelectedItem is T selected && !EqualityComparer<T>.Default.Equals(selected, value))
+            {
+                onCommit(selected);
+            }
+        };
+        panel.Children.Add(comboBox);
         InspectorPanel.Children.Add(panel);
     }
 
@@ -955,7 +1597,7 @@ public partial class MainWindow : Window
         InspectorPanel.Children.Add(new Separator
         {
             Margin = new Thickness(0, 6, 0, 6),
-            Background = System.Windows.Media.Brushes.DimGray,
+            Background = (Brush)FindResource("DividerBrush"),
         });
     }
 
@@ -974,10 +1616,29 @@ public partial class MainWindow : Window
 
     private void CommitTextProperty(string elementId, string propertyName, object oldValue, object newValue)
     {
-        if (oldValue is string oldStr && newValue is string newStr && oldStr == newStr) return;
-        if (oldValue is int oldInt && newValue is int newInt && oldInt == newInt) return;
+        if (Equals(oldValue, newValue)) return;
 
-        _editor.Session.ExecuteCommand(new ChangePropertyCommand(elementId, propertyName, oldValue, newValue));
+        TextElement? before = _editor.Session.Document.Elements
+            .OfType<TextElement>()
+            .FirstOrDefault(element => element.Id == elementId);
+        if (before is null) return;
+
+        TextElement changed = propertyName switch
+        {
+            "text" => before with { Text = (string)newValue },
+            "fontSizePoints" => before with { FontSizePoints = (int)newValue },
+            "fontFamily" => before with { FontFamily = (string?)newValue },
+            "frameSizing" => before with { FrameSizing = (TextFrameSizingMode)newValue },
+            "wrapping" => before with { Wrapping = (TextWrappingMode)newValue },
+            "overflow" => before with { Overflow = (TextOverflowMode)newValue },
+            "horizontalAlignment" => before with { HorizontalAlignment = (TextHorizontalAlignment)newValue },
+            "verticalAlignment" => before with { VerticalAlignment = (TextVerticalAlignment)newValue },
+            "rotationMillidegrees" => before with { RotationMillidegrees = (int)newValue },
+            _ => before,
+        };
+        TextElement after = TextLayoutEngine.ResolveAutomaticFrame(changed);
+        if (before == after) return;
+        _editor.Session.ExecuteCommand(new ReplaceElementsCommand([(before, after)]));
     }
 
     private void CommitSelectionMoveTo(List<string> elementIds, int targetX, int targetY)
@@ -1016,7 +1677,8 @@ public partial class MainWindow : Window
         List<ElementGroup> groups = doc.DesignMetadata.Groups
             .Select(g => string.Equals(g.Id, groupId, StringComparison.Ordinal) ? updated : g)
             .ToList();
-        DocumentDesignMetadata newMetadata = new(groups, doc.DesignMetadata.Guides, doc.DesignMetadata.Grid);
+        DocumentDesignMetadata newMetadata = new(
+            groups, doc.DesignMetadata.Guides, doc.DesignMetadata.Grid, doc.DesignMetadata.SafeMargins);
 
         _editor.Session.ExecuteCommand(new ChangeDesignMetadataCommand(doc.DesignMetadata, newMetadata));
     }
@@ -1040,7 +1702,8 @@ public partial class MainWindow : Window
         List<ElementGroup> groups = doc.DesignMetadata.Groups
             .Select(g => string.Equals(g.Id, groupId, StringComparison.Ordinal) ? updated : g)
             .ToList();
-        DocumentDesignMetadata newMetadata = new(groups, doc.DesignMetadata.Guides, doc.DesignMetadata.Grid);
+        DocumentDesignMetadata newMetadata = new(
+            groups, doc.DesignMetadata.Guides, doc.DesignMetadata.Grid, doc.DesignMetadata.SafeMargins);
 
         _editor.Session.ExecuteCommand(new ChangeDesignMetadataCommand(doc.DesignMetadata, newMetadata));
     }
@@ -1143,7 +1806,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 0, 4, 0),
             Background = System.Windows.Media.Brushes.Transparent,
             BorderBrush = System.Windows.Media.Brushes.Transparent,
-            Foreground = System.Windows.Media.Brushes.LightGray,
+            Foreground = (Brush)FindResource("TextMutedBrush"),
             FontSize = 14,
             Padding = new Thickness(0),
         };
@@ -1185,7 +1848,7 @@ public partial class MainWindow : Window
         var label = new TextBlock
         {
             Text = $"{displayName} ({group.MemberIds.Count})",
-            Foreground = System.Windows.Media.Brushes.White,
+            Foreground = (Brush)FindResource("TextBrush"),
             FontWeight = FontWeights.Bold,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1231,7 +1894,7 @@ public partial class MainWindow : Window
         var label = new TextBlock
         {
             Text = $"{displayName} ({element.ElementType})",
-            Foreground = System.Windows.Media.Brushes.LightGray,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -1277,13 +1940,13 @@ public partial class MainWindow : Window
         labels.Children.Add(new TextBlock
         {
             Text = displayName,
-            Foreground = System.Windows.Media.Brushes.White,
+            Foreground = (Brush)FindResource("TextBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
         labels.Children.Add(new TextBlock
         {
             Text = element.ElementType,
-            Foreground = System.Windows.Media.Brushes.Gray,
+            Foreground = (Brush)FindResource("TextMutedBrush"),
             FontSize = 10,
         });
         Grid.SetColumn(labels, 2);
@@ -1318,13 +1981,17 @@ public partial class MainWindow : Window
     {
         if (_updatingLayers) return;
 
+        string[] selectedIds = LayersList.SelectedItems.Cast<ListBoxItem>()
+            .Select(item => item.Tag as string)
+            .OfType<string>()
+            .ToArray();
+        CommitTextEdit();
+
         LabelDocument doc = _editor.Session.Document;
         List<SelectionTarget> targets = new();
 
-        foreach (ListBoxItem item in LayersList.SelectedItems.Cast<ListBoxItem>())
+        foreach (string id in selectedIds)
         {
-            if (item.Tag is not string id) continue;
-
             bool isGroup = doc.DesignMetadata.Groups.Any(g => string.Equals(g.Id, id, StringComparison.Ordinal));
             if (isGroup)
             {

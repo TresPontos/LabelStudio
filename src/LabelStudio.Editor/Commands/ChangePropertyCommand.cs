@@ -50,6 +50,12 @@ public sealed class ChangePropertyCommand : IEditorCommand
             ("text", TextElement t) => t with { Text = (string)value },
             ("fontSizePoints", TextElement t) => t with { FontSizePoints = (int)value },
             ("fontFamily", TextElement t) => t with { FontFamily = (string?)value },
+            ("frameSizing", TextElement t) => t with { FrameSizing = (TextFrameSizingMode)value },
+            ("wrapping", TextElement t) => t with { Wrapping = (TextWrappingMode)value },
+            ("overflow", TextElement t) => t with { Overflow = (TextOverflowMode)value },
+            ("horizontalAlignment", TextElement t) => t with { HorizontalAlignment = (TextHorizontalAlignment)value },
+            ("verticalAlignment", TextElement t) => t with { VerticalAlignment = (TextVerticalAlignment)value },
+            ("rotationMillidegrees", DocumentElement documentElement) => documentElement with { RotationMillidegrees = (int)value },
             ("assetId", ImageElement i) => i with { AssetId = (string)value },
             _ => element,
         };
