@@ -35,6 +35,8 @@ public partial class MainWindow : Window
     private CanvasInputHandler _input = null!;
     private readonly SkiaCanvasPainter _painter = new();
     private bool _updatingLayers;
+    private bool _inspectorCollapsed;
+    private bool _inspectorAutoCollapsed;
     private TextEditSession _textEditSession = null!;
     private bool _updatingTextEditOverlay;
     private string? _newTextEditElementId;
@@ -44,16 +46,63 @@ public partial class MainWindow : Window
     private readonly RulerLayoutEngine _rulerLayout = new();
     private Point? _rulerPointer;
     private const int DefaultContinuousLengthMicrometres = 100_000;
+    private readonly BuildInfo _build = BuildInfo.Current;
 
     public MainWindow()
     {
         InitializeComponent();
+        UpdateDocumentHeaderLayout();
+        VersionLabel.Text = _build.ShortVersion;
     }
 
     private void MainWindow_OnLoaded(object sender, RoutedEventArgs e)
     {
         CreateNewDocument("brother.dk-22251");
         UpdateCommandButtons();
+    }
+
+    private void MainWindow_OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateDocumentHeaderLayout();
+
+        if (ActualWidth < 1040 && !_inspectorCollapsed)
+        {
+            _inspectorAutoCollapsed = true;
+            SetInspectorCollapsed(true);
+        }
+        else if (ActualWidth >= 1120 && _inspectorAutoCollapsed)
+        {
+            _inspectorAutoCollapsed = false;
+            SetInspectorCollapsed(false);
+        }
+    }
+
+    private void UpdateDocumentHeaderLayout()
+    {
+        bool compact = ActualWidth < 820;
+        DocumentBrandColumn.Width = new GridLength(compact ? 0 : 180);
+        DocumentBrandPanel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        double rollButtonWidth = compact ? 170 : 198;
+        ChangeRollColumn.Width = new GridLength(rollButtonWidth);
+        ChangeRollButton.Width = rollButtonWidth;
+        OutputQuickActions.Width = rollButtonWidth;
+        PrinterStatusText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnToggleInspector(object sender, RoutedEventArgs e)
+    {
+        _inspectorAutoCollapsed = false;
+        SetInspectorCollapsed(!_inspectorCollapsed);
+    }
+
+    private void SetInspectorCollapsed(bool collapsed)
+    {
+        _inspectorCollapsed = collapsed;
+        InspectorShell.Width = collapsed ? 48 : 292;
+        InspectorContent.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        InspectorCollapsedRail.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
+        InspectorShell.ColumnDefinitions[0].Width = collapsed ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        InspectorShell.ColumnDefinitions[1].Width = collapsed ? new GridLength(48) : new GridLength(0);
     }
 
     private void CreateNewDocument(string mediaProfileId, int viewRotationDegrees = 0)
@@ -113,13 +162,32 @@ public partial class MainWindow : Window
 
     private void InvalidateCanvas() => CanvasElement.InvalidateVisual();
 
+    private void OnVersionLabelClick(object sender, MouseButtonEventArgs e)
+    {
+        string built = _build.BuiltAtUtc is { } at
+            ? at.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
+            : "unknown";
+        string commit = _build.Commit is { } hash
+            ? (_build.Dirty ? hash + " (dirty working tree)" : hash)
+            : "unknown";
+        MessageBox.Show(
+            $"LabelStudio {_build.Version}\n" +
+            $"Commit: {commit}\n" +
+            $"Built: {built}\n" +
+            $"Configuration: {_build.Configuration}\n" +
+            $"Runtime: {Environment.Version} ({Environment.OSVersion.VersionString})",
+            "About LabelStudio",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private void UpdateTitle()
     {
         string dirty = _editor.Session.IsDirty ? " *" : "";
         string file = _editor.Session.FilePath is not null
             ? System.IO.Path.GetFileName(_editor.Session.FilePath)
             : "Untitled";
-        Title = $"LabelStudio - {file}{dirty}";
+        Title = $"LabelStudio {_build.ShortVersion} - {file}{dirty}";
 
         DocumentNameLabel.Text = file == "Untitled" ? "Untitled label" : file;
         MediaCatalog catalog = MediaCatalog.CreateBuiltIn();
@@ -585,13 +653,18 @@ public partial class MainWindow : Window
     private void UpdateSnapControls()
     {
         if (_editor is null) return;
-        SnapToggle.Content = _editor.SnapEnabled ? "Snap: ON" : "Snap: OFF";
+        SnapToggle.IsChecked = _editor.SnapEnabled;
+        SnapToggle.Content = FindResource("IconSnap");
+        SnapToggle.ContentTemplate = (DataTemplate)FindResource("ToolbarToggleIconTemplate");
+        SnapToggle.ToolTip = _editor.SnapEnabled
+            ? "Snapping is on. Click to turn it off; hold Alt while dragging to bypass."
+            : "Snapping is off. Click to turn it on.";
         SnapStatusLabel.Text = _editor.SnapEnabled ? "Snap: ON" : "Snap: OFF";
         ShowGridToggle.IsChecked = _editor.ShowGrid;
         ShowPrintLimitsToggle.IsChecked = _editor.ShowPrintLimits;
         ShowSafeAreaToggle.IsChecked = _editor.ShowSafeArea;
-        ShowSafeAreaToggle.Content =
-            $"Safe {_editor.Session.Document.DesignMetadata.SafeMargins.Left.ToMillimetres():0.#} mm";
+        ShowSafeAreaToggle.ToolTip =
+            $"Show or hide the {_editor.Session.Document.DesignMetadata.SafeMargins.Left.ToMillimetres():0.#} mm safe inset";
     }
 
     private void UpdatePhysicalStatus()
@@ -1204,21 +1277,99 @@ public partial class MainWindow : Window
             TextContextPanel.Opacity = 0.45;
             ContextFontFamilyCombo.IsEnabled = false;
             ContextFontSizeBox.IsEnabled = false;
+            SetTextFormatTogglesEnabled(false);
+            _suppressContextUpdates = true;
+            ContextWrapToggle.IsChecked = false;
+            ContextShrinkToggle.IsChecked = false;
+            ContextHorizontalLeftToggle.IsChecked = false;
+            ContextHorizontalCenterToggle.IsChecked = false;
+            ContextHorizontalRightToggle.IsChecked = false;
+            ContextVerticalTopToggle.IsChecked = false;
+            ContextVerticalMiddleToggle.IsChecked = false;
+            ContextVerticalBottomToggle.IsChecked = false;
             ContextTextStatus.Text = "Select text to format";
             ContextFontFamilyCombo.Text = "";
             ContextFontSizeBox.Text = "";
+            _suppressContextUpdates = false;
             return;
         }
 
         TextContextPanel.Opacity = 1.0;
         ContextFontFamilyCombo.IsEnabled = true;
         ContextFontSizeBox.IsEnabled = true;
+        SetTextFormatTogglesEnabled(true);
         ContextTextStatus.Text = text.Text.Length > 20 ? text.Text[..20] + "…" : (text.Text.Length == 0 ? "Empty text" : text.Text);
 
         _suppressContextUpdates = true;
         ContextFontFamilyCombo.Text = text.FontFamily ?? "Segoe UI";
         ContextFontSizeBox.Text = text.FontSizePoints.ToString("0");
+        ContextWrapToggle.IsChecked = text.Wrapping == TextWrappingMode.Wrap;
+        ContextShrinkToggle.IsChecked = text.Overflow == TextOverflowMode.ShrinkToFit;
+        ContextHorizontalLeftToggle.IsChecked = text.HorizontalAlignment == TextHorizontalAlignment.Left;
+        ContextHorizontalCenterToggle.IsChecked = text.HorizontalAlignment == TextHorizontalAlignment.Center;
+        ContextHorizontalRightToggle.IsChecked = text.HorizontalAlignment == TextHorizontalAlignment.Right;
+        ContextVerticalTopToggle.IsChecked = text.VerticalAlignment == TextVerticalAlignment.Top;
+        ContextVerticalMiddleToggle.IsChecked = text.VerticalAlignment == TextVerticalAlignment.Middle;
+        ContextVerticalBottomToggle.IsChecked = text.VerticalAlignment == TextVerticalAlignment.Bottom;
         _suppressContextUpdates = false;
+    }
+
+    private void SetTextFormatTogglesEnabled(bool enabled)
+    {
+        ContextWrapToggle.IsEnabled = enabled;
+        ContextShrinkToggle.IsEnabled = enabled;
+        ContextHorizontalLeftToggle.IsEnabled = enabled;
+        ContextHorizontalCenterToggle.IsEnabled = enabled;
+        ContextHorizontalRightToggle.IsEnabled = enabled;
+        ContextVerticalTopToggle.IsEnabled = enabled;
+        ContextVerticalMiddleToggle.IsEnabled = enabled;
+        ContextVerticalBottomToggle.IsEnabled = enabled;
+    }
+
+    private void OnContextWrapToggle(object sender, RoutedEventArgs e)
+    {
+        if (_suppressContextUpdates || GetSingleSelectedTextElement() is not { } text) return;
+        TextWrappingMode value = ContextWrapToggle.IsChecked == true ? TextWrappingMode.Wrap : TextWrappingMode.NoWrap;
+        if (text.Wrapping != value) CommitTextProperty(text.Id, "wrapping", text.Wrapping, value);
+    }
+
+    private void OnContextShrinkToggle(object sender, RoutedEventArgs e)
+    {
+        if (_suppressContextUpdates || GetSingleSelectedTextElement() is not { } text) return;
+        TextOverflowMode value = ContextShrinkToggle.IsChecked == true ? TextOverflowMode.ShrinkToFit : TextOverflowMode.Clip;
+        if (text.Overflow != value) CommitTextProperty(text.Id, "overflow", text.Overflow, value);
+    }
+
+    private void OnContextHorizontalAlignmentClick(object sender, RoutedEventArgs e)
+    {
+        if (_suppressContextUpdates || sender is not ToggleButton button || GetSingleSelectedTextElement() is not { } text) return;
+        if (button.IsChecked != true)
+        {
+            button.IsChecked = true;
+            return;
+        }
+
+        TextHorizontalAlignment value = button == ContextHorizontalCenterToggle
+            ? TextHorizontalAlignment.Center
+            : button == ContextHorizontalRightToggle ? TextHorizontalAlignment.Right : TextHorizontalAlignment.Left;
+        if (text.HorizontalAlignment != value)
+            CommitTextProperty(text.Id, "horizontalAlignment", text.HorizontalAlignment, value);
+    }
+
+    private void OnContextVerticalAlignmentClick(object sender, RoutedEventArgs e)
+    {
+        if (_suppressContextUpdates || sender is not ToggleButton button || GetSingleSelectedTextElement() is not { } text) return;
+        if (button.IsChecked != true)
+        {
+            button.IsChecked = true;
+            return;
+        }
+
+        TextVerticalAlignment value = button == ContextVerticalMiddleToggle
+            ? TextVerticalAlignment.Middle
+            : button == ContextVerticalBottomToggle ? TextVerticalAlignment.Bottom : TextVerticalAlignment.Top;
+        if (text.VerticalAlignment != value)
+            CommitTextProperty(text.Id, "verticalAlignment", text.VerticalAlignment, value);
     }
 
     private void OnContextFontFamilyChanged(object sender, SelectionChangedEventArgs e)
@@ -1394,20 +1545,8 @@ public partial class MainWindow : Window
                 AddInspectorRow("Ink", text.Ink.ToString(), true);
                 AddInspectorTextField("Text", text.Text, value =>
                     CommitTextProperty(text.Id, "text", text.Text, value));
-                AddInspectorField("Font Size", text.FontSizePoints, "FontSize", pt =>
-                    CommitTextProperty(text.Id, "fontSizePoints", text.FontSizePoints, (int)Math.Round(pt, MidpointRounding.AwayFromZero)));
-                AddInspectorTextField("Font", text.FontFamily ?? "", value =>
-                    CommitTextProperty(text.Id, "fontFamily", text.FontFamily ?? "", (object)(string.IsNullOrWhiteSpace(value) ? null : value.Trim())!));
                 AddInspectorEnumField("Sizing", text.FrameSizing, value =>
                     CommitTextProperty(text.Id, "frameSizing", text.FrameSizing, value));
-                AddInspectorEnumField("Wrapping", text.Wrapping, value =>
-                    CommitTextProperty(text.Id, "wrapping", text.Wrapping, value));
-                AddInspectorEnumField("Overflow", text.Overflow, value =>
-                    CommitTextProperty(text.Id, "overflow", text.Overflow, value));
-                AddInspectorEnumField("H Align", text.HorizontalAlignment, value =>
-                    CommitTextProperty(text.Id, "horizontalAlignment", text.HorizontalAlignment, value));
-                AddInspectorEnumField("V Align", text.VerticalAlignment, value =>
-                    CommitTextProperty(text.Id, "verticalAlignment", text.VerticalAlignment, value));
                 AddInspectorField("Rotation", text.RotationMillidegrees / 1000.0, "Rotation", degrees =>
                     CommitTextProperty(
                         text.Id,

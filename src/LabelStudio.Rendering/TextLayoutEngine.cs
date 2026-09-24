@@ -142,12 +142,13 @@ public static class TextLayoutEngine
         for (int i = 0; i < lines.Count; i++)
         {
             float lineWidth = font.MeasureText(lines[i]);
+            font.MeasureText(lines[i], out SKRect glyphBounds);
             contentWidth = Math.Max(contentWidth, lineWidth);
             float x = horizontalAlignment switch
             {
-                TextHorizontalAlignment.Center => Math.Max(0, (frameWidth - lineWidth) / 2),
-                TextHorizontalAlignment.Right => Math.Max(0, frameWidth - lineWidth),
-                _ => 0,
+                TextHorizontalAlignment.Center => Math.Max(0, (frameWidth - glyphBounds.Width) / 2 - glyphBounds.Left),
+                TextHorizontalAlignment.Right => Math.Max(0, frameWidth - glyphBounds.Right),
+                _ => Math.Max(0, -glyphBounds.Left),
             };
             float baseline = verticalOffset - metrics.Ascent + i * lineHeight;
             positioned.Add(new TextLayoutLine(lines[i], x, baseline, lineWidth));

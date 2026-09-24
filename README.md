@@ -38,20 +38,23 @@ dotnet build LabelStudio.slnx --configuration Release
 dotnet test LabelStudio.slnx --configuration Release
 ```
 
-## Run the desktop app
+## Run the latest validated desktop app
 
-```powershell
-dotnet run --project src/LabelStudio.Desktop --configuration Release
+Always launch the app with `run-latest.cmd` from the repository root. It checks
+whether the source changed since the latest successful build, runs restore and
+tests when needed, and launches the self-contained publish at
+`artifacts/latest/LabelStudio.Desktop.exe`. The status bar shows the app version
+and Git commit; click it for full build details.
+
+To explicitly test and publish changes before launching:
+
+```cmd
+build-latest.cmd
 ```
 
-## Publish a self-contained executable
-
-```powershell
-dotnet publish src/LabelStudio.Desktop/LabelStudio.Desktop.csproj `
-    --configuration Release --self-contained true --runtime win-x64 `
-    --output .\LabelStudioApp `
-    /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
-```
+This replaces the canonical latest folder only after tests and Release publish
+succeed. Do not launch files under `bin\`, `LabelStudioApp\`, or temporary
+staging folders directly; see [docs/running-latest.md](docs/running-latest.md).
 
 ## QL-800 hardware spike
 

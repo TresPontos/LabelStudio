@@ -3,13 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:skia="clr-namespace:SkiaSharp.Views.WPF;assembly=SkiaSharp.Views.WPF"
         Title="LabelStudio" Height="820" Width="1280"
-        MinHeight="620" MinWidth="920"
+        MinHeight="560" MinWidth="640"
         WindowStartupLocation="CenterScreen"
         Background="#FFE0DDE0"
         Foreground="#FF282331"
         FontFamily="Segoe UI" FontSize="13"
         Loaded="MainWindow_OnLoaded"
         Closing="MainWindow_OnClosing"
+        SizeChanged="MainWindow_OnSizeChanged"
         KeyDown="MainWindow_OnKeyDown">
     <Window.Resources>
         <SolidColorBrush x:Key="InkBrush" Color="#FF282331"/>
@@ -29,6 +30,50 @@
         <SolidColorBrush x:Key="SuccessBrush" Color="#FF4B8A70"/>
         <SolidColorBrush x:Key="TransparentBrush" Color="#00000000"/>
 
+        <!-- Familiar Material-style desktop actions, drawn locally for consistent rendering. -->
+        <Geometry x:Key="IconNew">M12,5 L12,19 M5,12 L19,12</Geometry>
+        <Geometry x:Key="IconOpen">M3,7 C3,5.9 3.9,5 5,5 L10,5 L12,7 L19,7 C20.1,7 21,7.9 21,9 L21,17 C21,18.1 20.1,19 19,19 L5,19 C3.9,19 3,18.1 3,17 Z M3.5,10 L20.5,10</Geometry>
+        <Geometry x:Key="IconSave">M5,3 L17,3 L21,7 L21,20 L3,20 L3,3 Z M7,3 L7,9 L16,9 L16,4 M7,20 L7,13 L17,13 L17,20</Geometry>
+        <Geometry x:Key="IconSaveAs">M4,3 L16,3 L20,7 L20,15 M6,3 L6,9 L15,9 L15,4 M6,20 L6,14 L16,14 M15,19 L20,14 M16,14 L20,14 L20,18</Geometry>
+        <Geometry x:Key="IconUndo">M9,14 L4,9 L9,4 M4,9 L14,9 C18,9 20,11 20,15 L20,18</Geometry>
+        <Geometry x:Key="IconRedo">M15,14 L20,9 L15,4 M20,9 L10,9 C6,9 4,11 4,15 L4,18</Geometry>
+        <Geometry x:Key="IconZoomIn">M10.5,3.5 A7,7 0 1 0 10.5,17.5 A7,7 0 1 0 10.5,3.5 M16,16 L21,21 M10.5,7 L10.5,14 M7,10.5 L14,10.5</Geometry>
+        <Geometry x:Key="IconZoomOut">M10.5,3.5 A7,7 0 1 0 10.5,17.5 A7,7 0 1 0 10.5,3.5 M16,16 L21,21 M7,10.5 L14,10.5</Geometry>
+        <Geometry x:Key="IconPlus">M12,5 L12,19 M5,12 L19,12</Geometry>
+        <Geometry x:Key="IconMinus">M5,12 L19,12</Geometry>
+        <Geometry x:Key="IconFit">M4,9 L4,4 L9,4 M15,4 L20,4 L20,9 M20,15 L20,20 L15,20 M9,20 L4,20 L4,15 M8,8 L16,16 M16,8 L8,16</Geometry>
+        <Geometry x:Key="IconRotateLeft">M4,8 L4,3 L9,3 M4.5,7.5 A8,8 0 1 1 4,14</Geometry>
+        <Geometry x:Key="IconRotateRight">M20,8 L20,3 L15,3 M19.5,7.5 A8,8 0 1 0 20,14</Geometry>
+        <Geometry x:Key="IconSnap">M12,3 L12,21 M3,12 L21,12 M6,6 L8,8 M16,16 L18,18 M18,6 L16,8 M8,16 L6,18</Geometry>
+        <Geometry x:Key="IconGrid">M4,4 L10,4 L10,10 L4,10 Z M14,4 L20,4 L20,10 L14,10 Z M4,14 L10,14 L10,20 L4,20 Z M14,14 L20,14 L20,20 L14,20 Z</Geometry>
+        <Geometry x:Key="IconPrintArea">M5,3 L16,3 L20,7 L20,21 L5,21 Z M16,3 L16,7 L20,7 M8,11 L17,11 M8,14 L17,14 M8,17 L14,17</Geometry>
+        <Geometry x:Key="IconSafeArea">M12,3 L21,12 L12,21 L3,12 Z M8,12 L16,12 M12,8 L12,16</Geometry>
+        <Geometry x:Key="IconPreview">M2,12 C4.5,7 8,5 12,5 C16,5 19.5,7 22,12 C19.5,17 16,19 12,19 C8,19 4.5,17 2,12 Z M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9</Geometry>
+        <Geometry x:Key="IconMock">M4,3 L16,3 L20,7 L20,21 L4,21 Z M16,3 L16,7 L20,7 M7,12 L17,12 M7,15 L17,15 M7,18 L14,18</Geometry>
+        <Geometry x:Key="IconPrinter">M7,3 L17,3 L17,8 L7,8 Z M6,17 L4,17 C2.9,17 2,16.1 2,15 L2,10 C2,8.9 2.9,8 4,8 L20,8 C21.1,8 22,8.9 22,10 L22,15 C22,16.1 21.1,17 20,17 L18,17 M6,14 L18,14 L18,21 L6,21 Z M18,11 L19,11</Geometry>
+        <Geometry x:Key="IconWrap">M4,5 L20,5 M4,9 L17,9 C21,9 21,15 17,15 L8,15 M8,12 L5,15 L8,18 M4,20 L20,20</Geometry>
+        <Geometry x:Key="IconShrink">M4,7 L4,4 L7,4 M17,4 L20,4 L20,7 M20,17 L20,20 L17,20 M7,20 L4,20 L4,17 M8,8 L16,16 M16,8 L8,16</Geometry>
+        <Geometry x:Key="IconAlignLeft">M4,4 L4,20 M8,6 L20,6 M8,10 L17,10 M8,14 L20,14 M8,18 L16,18</Geometry>
+        <Geometry x:Key="IconAlignCenter">M12,4 L12,20 M6,6 L18,6 M8,10 L16,10 M6,14 L18,14 M8,18 L16,18</Geometry>
+        <Geometry x:Key="IconAlignRight">M20,4 L20,20 M4,6 L16,6 M7,10 L16,10 M4,14 L16,14 M8,18 L16,18</Geometry>
+        <Geometry x:Key="IconAlignTop">M4,4 L20,4 M6,8 L6,20 M10,8 L10,17 M14,8 L14,20 M18,8 L18,16</Geometry>
+        <Geometry x:Key="IconAlignMiddle">M4,12 L20,12 M6,5 L6,19 M10,7 L10,17 M14,5 L14,19 M18,7 L18,17</Geometry>
+        <Geometry x:Key="IconAlignBottom">M4,20 L20,20 M6,4 L6,16 M10,7 L10,16 M14,4 L14,16 M18,8 L18,16</Geometry>
+
+        <Style x:Key="ToolbarCategory" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="4,3"/>
+            <Setter Property="Margin" Value="2,2"/>
+        </Style>
+        <Style x:Key="ToolbarCategoryLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="Margin" Value="2,0,0,3"/>
+        </Style>
         <Style x:Key="BaseButton" TargetType="Button">
             <Setter Property="Background" Value="{StaticResource TransparentBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource TransparentBrush}"/>
@@ -73,14 +118,64 @@
         </Style>
 
         <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
-            <Setter Property="Width" Value="58"/>
-            <Setter Property="Height" Value="58"/>
-            <Setter Property="Margin" Value="2,0"/>
-            <Setter Property="Padding" Value="4,5"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="Padding" Value="1"/>
             <Setter Property="Foreground" Value="{StaticResource InkSoftBrush}"/>
         </Style>
+        <Style x:Key="ToolbarToggleButton" TargetType="ToggleButton">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource InkSoftBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                        <Border x:Name="ToggleChrome" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ToggleChrome" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                                <Setter TargetName="ToggleChrome" Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ToggleChrome" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                                <Setter TargetName="ToggleChrome" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AccentDarkBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <DataTemplate x:Key="ToolbarIconTemplate">
+            <Viewbox Width="15" Height="15" Stretch="Uniform">
+                <Path Data="{Binding}" Fill="Transparent"
+                      Stroke="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=Foreground}"
+                      StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      StrokeLineJoin="Round"/>
+            </Viewbox>
+        </DataTemplate>
+        <DataTemplate x:Key="ToolbarToggleIconTemplate">
+            <Viewbox Width="15" Height="15" Stretch="Uniform">
+                <Path Data="{Binding}" Fill="Transparent"
+                      Stroke="{Binding RelativeSource={RelativeSource AncestorType={x:Type ToggleButton}}, Path=Foreground}"
+                      StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      StrokeLineJoin="Round"/>
+            </Viewbox>
+        </DataTemplate>
         <Style x:Key="PrimaryToolbarButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
-            <Setter Property="Width" Value="78"/>
+            <Setter Property="Width" Value="34"/>
             <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
             <Setter Property="Foreground" Value="White"/>
@@ -92,7 +187,7 @@
             </Style.Triggers>
         </Style>
         <Style x:Key="RollButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
-            <Setter Property="Width" Value="218"/>
+            <Setter Property="Width" Value="198"/>
             <Setter Property="Height" Value="48"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="Background" Value="{StaticResource AccentSoftBrush}"/>
@@ -176,6 +271,13 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
+        <Style x:Key="InlineToolbarLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="3,0,5,0"/>
+        </Style>
         <Style TargetType="ListBoxItem">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
             <Setter Property="Padding" Value="7,6"/>
@@ -207,40 +309,27 @@
     </Window.Resources>
 
     <DockPanel Background="{StaticResource WorkspaceBrush}">
-        <!-- Native-style application menu -->
-        <Border DockPanel.Dock="Top" Height="28" Background="{StaticResource InkBrush}">
-            <Grid>
-                <TextBlock Text="LABELSTUDIO" Margin="14,0,0,0" VerticalAlignment="Center"
-                           Foreground="#FFEEDFE7" FontSize="10" FontWeight="Bold"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,16,0">
-                    <TextBlock Text="File" Margin="16,0" VerticalAlignment="Center" Foreground="#FFE8DDE4" FontSize="11"/>
-                    <TextBlock Text="Edit" Margin="16,0" VerticalAlignment="Center" Foreground="#FFE8DDE4" FontSize="11"/>
-                    <TextBlock Text="View" Margin="16,0" VerticalAlignment="Center" Foreground="#FFE8DDE4" FontSize="11"/>
-                    <TextBlock Text="Insert" Margin="16,0" VerticalAlignment="Center" Foreground="#FFE8DDE4" FontSize="11"/>
-                    <TextBlock Text="Format" Margin="16,0" VerticalAlignment="Center" Foreground="#FFE8DDE4" FontSize="11"/>
-                    <TextBlock Text="Layout" Margin="16,0" VerticalAlignment="Center" Foreground="#FFE8DDE4" FontSize="11"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-
         <!-- Document identity -->
         <Border DockPanel.Dock="Top" Height="72" Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
             <Grid Margin="16,0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="210"/>
+                    <ColumnDefinition x:Name="DocumentBrandColumn" Width="180"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="218"/>
+                    <ColumnDefinition x:Name="ChangeRollColumn" Width="198"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center">
+                <StackPanel x:Name="DocumentBrandPanel" VerticalAlignment="Center">
                     <TextBlock Text="LabelStudio" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}"/>
                     <TextBlock Text="LABEL DESIGNER  /  BROTHER QL" FontSize="9" FontWeight="SemiBold"
                                Foreground="{StaticResource AccentBrush}" Margin="1,1,0,0"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
-                    <TextBlock x:Name="DocumentNameLabel" Text="Untitled label" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
-                    <TextBlock Text="Label design  •  ready to print" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="16,0,10,0">
+                    <TextBlock x:Name="DocumentNameLabel" Text="Untitled label" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="Label design  •  ready to print" FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                               Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
                 <Button Grid.Column="2" x:Name="ChangeRollButton" Click="OnChangeMedia"
                         Style="{StaticResource RollButton}" Cursor="Hand"
@@ -255,120 +344,148 @@
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,2,2"/>
                     </Grid>
                 </Button>
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                <Border x:Name="OutputQuickActions" Grid.Column="3" Style="{StaticResource ToolbarCategory}"
+                        Width="198" Height="48" Margin="4,0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Button x:Name="HeaderPreviewButton" Style="{StaticResource ToolbarButton}"
+                                Content="{StaticResource IconPreview}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnThermalPreview" ToolTip="Thermal preview" AutomationProperties.Name="Thermal preview"/>
+                        <Button x:Name="HeaderMockPrintButton" Style="{StaticResource ToolbarButton}"
+                                Content="{StaticResource IconMock}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnMockPrint" ToolTip="Mock print to file" AutomationProperties.Name="Mock print"/>
+                        <Button x:Name="HeaderPrintButton" Style="{StaticResource PrimaryToolbarButton}"
+                                Content="{StaticResource IconPrinter}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnPrint" ToolTip="Print to Brother QL printer" AutomationProperties.Name="Print"/>
+                    </StackPanel>
+                </Border>
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                     <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" Margin="0,0,7,0"/>
-                    <TextBlock Text="QL-800 READY" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock x:Name="PrinterStatusText" Text="QL-800 READY" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Command strip -->
-        <Border DockPanel.Dock="Top" Height="76" Background="{StaticResource PanelBrush}"
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,8">
-            <DockPanel LastChildFill="True">
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="8,0,0,0">
-                    <Button Style="{StaticResource ToolbarButton}" Click="OnThermalPreview" ToolTip="Thermal Preview">
-                        <StackPanel><TextBlock Text="◉" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Preview" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarButton}" Click="OnMockPrint" ToolTip="Mock Print to File">
-                        <StackPanel><TextBlock Text="▤" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Mock print" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource PrimaryToolbarButton}" Click="OnPrint" ToolTip="Physical Print">
-                        <StackPanel><TextBlock Text="▶" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Print" Foreground="White" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                </StackPanel>
-                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                  <StackPanel Orientation="Horizontal">
-                    <Border x:Name="TextContextPanel" Background="{StaticResource AccentSoftBrush}" BorderBrush="{StaticResource AccentBrush}"
-                            BorderThickness="1" CornerRadius="5" Padding="9,5" Margin="0,0,8,0" VerticalAlignment="Center"
-                            ToolTip="Select a text object to edit its common formatting here">
-                        <StackPanel Orientation="Horizontal">
-                            <StackPanel Margin="0,0,8,0" VerticalAlignment="Center">
-                                <TextBlock Text="TEXT" Style="{StaticResource ContextCaption}"/>
-                                <TextBlock x:Name="ContextTextStatus" Text="Select text to format" FontSize="10"
-                                           Foreground="{StaticResource AccentDarkBrush}"/>
-                            </StackPanel>
-                            <ComboBox x:Name="ContextFontFamilyCombo" Style="{StaticResource ContextCombo}"
-                                      IsEditable="True" ToolTip="Font family"
-                                      SelectionChanged="OnContextFontFamilyChanged"
-                                      LostFocus="OnContextFontFamilyLostFocus">
-                                <ComboBoxItem Content="Segoe UI"/>
-                                <ComboBoxItem Content="Arial"/>
-                                <ComboBoxItem Content="Calibri"/>
-                                <ComboBoxItem Content="Bahnschrift"/>
-                                <ComboBoxItem Content="Consolas"/>
-                            </ComboBox>
-                            <Button Style="{StaticResource CompactButton}" Width="26" Height="28" Content="−"
-                                    Click="OnContextFontSizeDown" ToolTip="Decrease text size"/>
-                            <TextBox x:Name="ContextFontSizeBox" Style="{StaticResource ContextField}" Width="52"
-                                     Text="12" TextAlignment="Center" ToolTip="Font size in points"
-                                     LostFocus="OnContextFontSizeLostFocus" KeyDown="OnContextFontSizeKeyDown"/>
-                            <Button Style="{StaticResource CompactButton}" Width="26" Height="28" Content="+"
-                                    Click="OnContextFontSizeUp" ToolTip="Increase text size"/>
-                            <TextBlock Text="pt" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
-                                       VerticalAlignment="Center" Margin="3,0,0,0"/>
-                        </StackPanel>
-                    </Border>
-                    <StackPanel Orientation="Horizontal">
-                    <Button Style="{StaticResource ToolbarButton}" Click="OnNew" ToolTip="New (Ctrl+N)">
-                        <StackPanel><TextBlock Text="+" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="New" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarButton}" Click="OnOpen" ToolTip="Open (Ctrl+O)">
-                        <StackPanel><TextBlock Text="□" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Open" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarButton}" Click="OnSave" ToolTip="Save (Ctrl+S)">
-                        <StackPanel><TextBlock Text="▣" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Save" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource ToolbarButton}" Click="OnSaveAs" ToolTip="Save As (Ctrl+Shift+S)">
-                        <StackPanel><TextBlock Text="↗" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Save as" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
+        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,2">
+            <ToolBarTray IsLocked="True" Background="{StaticResource PanelBrush}">
+                <ToolBar x:Name="MainCommandToolBar" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Background="{StaticResource PanelBrush}" BorderBrush="Transparent" BorderThickness="0" Padding="2">
+                    <StackPanel x:Name="TextContextPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                                ToolBar.OverflowMode="AsNeeded"
+                                ToolTip="Select one text object to edit typography, wrapping, and alignment">
+                        <TextBlock Text="TEXT" Style="{StaticResource InlineToolbarLabel}"/>
+                        <ComboBox x:Name="ContextFontFamilyCombo" Style="{StaticResource ContextCombo}" Width="96"
+                                  IsEditable="True" ToolTip="Font family"
+                                  SelectionChanged="OnContextFontFamilyChanged" LostFocus="OnContextFontFamilyLostFocus">
+                            <ComboBoxItem Content="Segoe UI"/><ComboBoxItem Content="Arial"/>
+                            <ComboBoxItem Content="Calibri"/><ComboBoxItem Content="Bahnschrift"/>
+                            <ComboBoxItem Content="Consolas"/>
+                        </ComboBox>
+                        <Button Style="{StaticResource ToolbarButton}" Width="26" Height="27"
+                                Content="{StaticResource IconMinus}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnContextFontSizeDown" ToolTip="Decrease text size" AutomationProperties.Name="Decrease text size"/>
+                        <TextBox x:Name="ContextFontSizeBox" Style="{StaticResource ContextField}" Width="36" Height="27"
+                                 Text="12" TextAlignment="Center" ToolTip="Font size in points"
+                                 LostFocus="OnContextFontSizeLostFocus" KeyDown="OnContextFontSizeKeyDown"/>
+                        <Button Style="{StaticResource ToolbarButton}" Width="26" Height="27"
+                                Content="{StaticResource IconPlus}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnContextFontSizeUp" ToolTip="Increase text size" AutomationProperties.Name="Increase text size"/>
+                        <TextBlock Text="pt" Foreground="{StaticResource TextSecondaryBrush}" FontSize="9"
+                                   VerticalAlignment="Center" Margin="1,0,3,0"/>
+                        <ToggleButton x:Name="ContextWrapToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconWrap}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextWrapToggle" ToolTip="Wrap text" AutomationProperties.Name="Wrap text"/>
+                        <ToggleButton x:Name="ContextShrinkToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconShrink}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextShrinkToggle" ToolTip="Shrink text to fit its frame" AutomationProperties.Name="Shrink text to fit"/>
+                        <ToggleButton x:Name="ContextHorizontalLeftToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconAlignLeft}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextHorizontalAlignmentClick" ToolTip="Align text left" AutomationProperties.Name="Align text left"/>
+                        <ToggleButton x:Name="ContextHorizontalCenterToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconAlignCenter}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextHorizontalAlignmentClick" ToolTip="Center text horizontally" AutomationProperties.Name="Center text horizontally"/>
+                        <ToggleButton x:Name="ContextHorizontalRightToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconAlignRight}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextHorizontalAlignmentClick" ToolTip="Align text right" AutomationProperties.Name="Align text right"/>
+                        <Separator/>
+                        <ToggleButton x:Name="ContextVerticalTopToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconAlignTop}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextVerticalAlignmentClick" ToolTip="Align text to top" AutomationProperties.Name="Align text top"/>
+                        <ToggleButton x:Name="ContextVerticalMiddleToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconAlignMiddle}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextVerticalAlignmentClick" ToolTip="Center text vertically" AutomationProperties.Name="Center text vertically"/>
+                        <ToggleButton x:Name="ContextVerticalBottomToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconAlignBottom}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      Click="OnContextVerticalAlignmentClick" ToolTip="Align text to bottom" AutomationProperties.Name="Align text bottom"/>
+                        <TextBlock x:Name="ContextTextStatus" Text="Select text to format" FontSize="9"
+                                   Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="3,0,5,0"/>
                     </StackPanel>
-                    <Border Width="1" Margin="8,10" Background="{StaticResource DividerBrush}"/>
-                    <StackPanel Orientation="Horizontal">
-                    <Button x:Name="UndoBtn" Style="{StaticResource ToolbarButton}" Click="OnUndo" ToolTip="Undo (Ctrl+Z)">
-                        <StackPanel><TextBlock Text="↶" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Undo" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
-                    <Button x:Name="RedoBtn" Style="{StaticResource ToolbarButton}" Click="OnRedo" ToolTip="Redo (Ctrl+Y)">
-                        <StackPanel><TextBlock Text="↷" Style="{StaticResource ToolbarGlyph}"/><TextBlock Text="Redo" Style="{StaticResource ToolbarCaption}"/></StackPanel>
-                    </Button>
+
+                    <Separator/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ToolBar.OverflowMode="AsNeeded">
+                        <TextBlock Text="FILE" Style="{StaticResource InlineToolbarLabel}"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconNew}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnNew" ToolTip="New label (Ctrl+N)" AutomationProperties.Name="New label"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconOpen}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnOpen" ToolTip="Open label (Ctrl+O)" AutomationProperties.Name="Open label"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconSave}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnSave" ToolTip="Save (Ctrl+S)" AutomationProperties.Name="Save"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconSaveAs}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnSaveAs" ToolTip="Save as (Ctrl+Shift+S)" AutomationProperties.Name="Save as"/>
                     </StackPanel>
-                    <Border Width="1" Margin="8,10" Background="{StaticResource DividerBrush}"/>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Style="{StaticResource CompactButton}" Content="−" Click="OnZoomOut" ToolTip="Zoom out"/>
-                    <TextBlock x:Name="ZoomLabel" Text="100%" MinWidth="45" TextAlignment="Center" VerticalAlignment="Center"
-                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
-                    <Button Style="{StaticResource CompactButton}" Content="+" Click="OnZoomIn" ToolTip="Zoom in"/>
-                    <Button Style="{StaticResource CompactButton}" Content="Fit" Click="OnZoomFit" ToolTip="Zoom to fit" FontSize="11"/>
-                    <Border Width="1" Height="26" Margin="8,0" Background="{StaticResource DividerBrush}"/>
-                    <Button Style="{StaticResource CompactButton}" Content="⟲" Click="OnRotateViewLeft" ToolTip="Rotate canvas view left. Does not change label printing."/>
-                    <TextBlock x:Name="ViewRotationLabel" Text="0°" MinWidth="28" TextAlignment="Center" VerticalAlignment="Center"
-                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
-                    <Button Style="{StaticResource CompactButton}" Content="⟳" Click="OnRotateViewRight" ToolTip="Rotate canvas view right. Does not change label printing."/>
-                    <Border Width="1" Height="26" Margin="8,0" Background="{StaticResource DividerBrush}"/>
-                    <Button x:Name="SnapToggle" Content="Snap: ON" Click="OnSnapToggle"
-                            Style="{StaticResource CompactButton}" MinWidth="68" ToolTip="Toggle snapping. Hold Alt while dragging to bypass."/>
-                    <CheckBox x:Name="ShowGridToggle" Content="Grid" IsChecked="True" Click="OnShowGridToggle"
-                              VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{StaticResource TextSecondaryBrush}"/>
-                    <ComboBox x:Name="GridSpacingCombo" Width="58" Height="24" SelectionChanged="OnGridSpacingChanged"
-                               ToolTip="Grid spacing">
-                        <ComboBoxItem Content="0.5 mm" Tag="500"/>
-                        <ComboBoxItem Content="1 mm" Tag="1000" IsSelected="True"/>
-                        <ComboBoxItem Content="2 mm" Tag="2000"/>
-                        <ComboBoxItem Content="5 mm" Tag="5000"/>
-                    </ComboBox>
-                    <Border Width="1" Height="26" Margin="8,0" Background="{StaticResource DividerBrush}"/>
-                    <CheckBox x:Name="ShowPrintLimitsToggle" Content="Print limits" IsChecked="True"
-                              Click="OnShowPrintLimitsToggle" VerticalAlignment="Center" Margin="2,0,8,0"
-                              Foreground="{StaticResource TextSecondaryBrush}"
-                              ToolTip="Show the printer's absolute printable boundary"/>
-                    <CheckBox x:Name="ShowSafeAreaToggle" Content="Safe 1 mm" IsChecked="False"
-                              Click="OnShowSafeAreaToggle" VerticalAlignment="Center" Margin="0,0,4,0"
-                              Foreground="{StaticResource TextSecondaryBrush}"
-                              ToolTip="Show a 1 mm inset inside the absolute print limits"/>
+
+                    <Separator/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ToolBar.OverflowMode="AsNeeded">
+                        <TextBlock Text="HISTORY" Style="{StaticResource InlineToolbarLabel}"/>
+                        <Button x:Name="UndoBtn" Style="{StaticResource ToolbarButton}" Content="{StaticResource IconUndo}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnUndo" ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"/>
+                        <Button x:Name="RedoBtn" Style="{StaticResource ToolbarButton}" Content="{StaticResource IconRedo}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnRedo" ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"/>
                     </StackPanel>
-                  </StackPanel>
-                </ScrollViewer>
-            </DockPanel>
+
+                    <Separator/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ToolBar.OverflowMode="AsNeeded">
+                        <TextBlock Text="VIEW" Style="{StaticResource InlineToolbarLabel}"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconZoomOut}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnZoomOut" ToolTip="Zoom out" AutomationProperties.Name="Zoom out"/>
+                        <TextBlock x:Name="ZoomLabel" Text="100%" MinWidth="38" TextAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconZoomIn}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnZoomIn" ToolTip="Zoom in" AutomationProperties.Name="Zoom in"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconFit}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnZoomFit" ToolTip="Fit label to workspace" AutomationProperties.Name="Fit label"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconRotateLeft}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnRotateViewLeft" ToolTip="Rotate view left; printing is unchanged" AutomationProperties.Name="Rotate view left"/>
+                        <TextBlock x:Name="ViewRotationLabel" Text="0°" MinWidth="24" TextAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"/>
+                        <Button Style="{StaticResource ToolbarButton}" Content="{StaticResource IconRotateRight}" ContentTemplate="{StaticResource ToolbarIconTemplate}"
+                                Click="OnRotateViewRight" ToolTip="Rotate view right; printing is unchanged" AutomationProperties.Name="Rotate view right"/>
+                    </StackPanel>
+
+                    <Separator/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ToolBar.OverflowMode="AsNeeded">
+                        <TextBlock Text="GUIDES" Style="{StaticResource InlineToolbarLabel}"/>
+                        <ToggleButton x:Name="SnapToggle" IsChecked="True" Click="OnSnapToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconSnap}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      ToolTip="Toggle snapping; hold Alt while dragging to bypass" AutomationProperties.Name="Toggle snapping"/>
+                        <ToggleButton x:Name="ShowGridToggle" IsChecked="True" Click="OnShowGridToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconGrid}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      ToolTip="Show or hide design grid" AutomationProperties.Name="Show grid"/>
+                        <ComboBox x:Name="GridSpacingCombo" Width="66" Height="27" Margin="2,0" SelectionChanged="OnGridSpacingChanged"
+                                  ToolTip="Grid spacing">
+                            <ComboBoxItem Content="0.5 mm" Tag="500"/><ComboBoxItem Content="1 mm" Tag="1000" IsSelected="True"/>
+                            <ComboBoxItem Content="2 mm" Tag="2000"/><ComboBoxItem Content="5 mm" Tag="5000"/>
+                        </ComboBox>
+                        <ToggleButton x:Name="ShowPrintLimitsToggle" IsChecked="True" Click="OnShowPrintLimitsToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconPrintArea}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      ToolTip="Show or hide the printer's printable boundary" AutomationProperties.Name="Show print limits"/>
+                        <ToggleButton x:Name="ShowSafeAreaToggle" IsChecked="False" Click="OnShowSafeAreaToggle" Style="{StaticResource ToolbarToggleButton}"
+                                      Content="{StaticResource IconSafeArea}" ContentTemplate="{StaticResource ToolbarToggleIconTemplate}"
+                                      ToolTip="Show or hide the safe inset" AutomationProperties.Name="Show safe area"/>
+                    </StackPanel>
+                </ToolBar>
+            </ToolBarTray>
         </Border>
 
         <!-- Status bar -->
@@ -382,7 +499,10 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock x:Name="PointerStatusLabel" Text="X: --  Y: --" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,14,0"/>
                     <TextBlock x:Name="SnapStatusLabel" Text="Snap: ON" Foreground="{StaticResource AccentDarkBrush}" FontSize="10" Margin="0,0,14,0"/>
-                    <TextBlock x:Name="LabelSizeStatusLabel" Text="Label: --" Foreground="{StaticResource TextMutedBrush}" FontSize="10"/>
+                    <TextBlock x:Name="LabelSizeStatusLabel" Text="Label: --" Foreground="{StaticResource TextMutedBrush}" FontSize="10" Margin="0,0,12,0"/>
+                    <TextBlock x:Name="VersionLabel" Text="v--" Foreground="{StaticResource TextMutedBrush}" FontSize="9"
+                               Cursor="Hand" MouseLeftButtonUp="OnVersionLabelClick"
+                               ToolTip="Click for build information"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -416,15 +536,28 @@
         </Border>
 
         <!-- Inspector and layers -->
-        <Border DockPanel.Dock="Right" Width="292" Background="{StaticResource PanelBrush}"
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0" Padding="14,14,12,10">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="2,0,2,12">
-                    <TextBlock Text="INSPECTOR" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}"/>
-                    <TextBlock Text="OBJECT PROPERTIES" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
-                </StackPanel>
-                <TabControl Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
-                            BorderBrush="{StaticResource BorderBrush}">
+        <Grid x:Name="InspectorShell" DockPanel.Dock="Right" Width="292" Background="{StaticResource PanelBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="0"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="InspectorContent" Grid.Column="0" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0" Padding="12,10">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="2,0,0,9">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="INSPECTOR" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}"/>
+                            <TextBlock Text="OBJECT PROPERTIES" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Style="{StaticResource ToolBtn}" Width="32" Height="32" Margin="0"
+                                Content="›" Click="OnToggleInspector" ToolTip="Collapse inspector" AutomationProperties.Name="Collapse inspector"/>
+                    </Grid>
+                    <TabControl Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+                                BorderBrush="{StaticResource BorderBrush}">
                     <TabItem Header="Inspector">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,10,4,4">
                             <StackPanel x:Name="InspectorPanel">
@@ -452,9 +585,19 @@
                                      HorizontalContentAlignment="Stretch"/>
                         </DockPanel>
                     </TabItem>
-                </TabControl>
-            </DockPanel>
-        </Border>
+                    </TabControl>
+                </DockPanel>
+            </Border>
+            <Border x:Name="InspectorCollapsedRail" Grid.Column="1" Visibility="Collapsed"
+                    Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+                <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" Margin="4,10">
+                    <Button Style="{StaticResource ToolBtn}" Width="38" Height="38" Margin="0"
+                            Content="‹" Click="OnToggleInspector" ToolTip="Expand inspector" AutomationProperties.Name="Expand inspector"/>
+                    <TextBlock Text="INSPECTOR" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"
+                               Margin="0,12,0,0" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- Measured workspace -->
         <Grid Background="{StaticResource WorkspaceBrush}" x:Name="WorkspaceGrid" ClipToBounds="True">

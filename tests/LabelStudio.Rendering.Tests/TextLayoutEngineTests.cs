@@ -1,6 +1,7 @@
 using LabelStudio.Document.Elements;
 using LabelStudio.Document.Ink;
 using LabelStudio.Document.Units;
+using SkiaSharp;
 
 namespace LabelStudio.Rendering.Tests;
 
@@ -51,6 +52,26 @@ public class TextLayoutEngineTests
         Assert.Equal(0, topLeft.Lines[0].X);
         Assert.True(bottomRight.Lines[0].X > topLeft.Lines[0].X);
         Assert.True(bottomRight.Lines[0].Baseline > topLeft.Lines[0].Baseline);
+    }
+
+    [Fact]
+    public void CenterAlignment_CentersVisibleGlyphBoundsInFrame()
+    {
+        const string value = "Hello";
+        const float frameWidth = 400;
+        const float fontSize = 72;
+
+        TextLayoutResult result = TextLayoutEngine.Layout(
+            value, "Segoe UI", fontSize, 1, frameWidth, 120,
+            TextWrappingMode.NoWrap, TextOverflowMode.Clip,
+            TextHorizontalAlignment.Center, TextVerticalAlignment.Top);
+
+        using SKTypeface typeface = SKTypeface.FromFamilyName("Segoe UI") ?? SKTypeface.Default;
+        using SKFont font = new(typeface, fontSize);
+        font.MeasureText(value, out SKRect glyphBounds);
+
+        float visibleCenter = result.Lines[0].X + (glyphBounds.Left + glyphBounds.Right) / 2;
+        Assert.Equal(frameWidth / 2, visibleCenter, precision: 3);
     }
 
     [Fact]
